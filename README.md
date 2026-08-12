@@ -1,6 +1,6 @@
 ---
 project: ap-lit-essay-grader
-status: scoping
+status: building (frontend UI complete; model/backend not started)
 end_goal: Grade AP Lit essays per-section against the real classroom rubric, with improvement comments, replacing an ad-hoc Claude.ai workflow
 business_metric: Weekly active usage (did she open the app and grade at least one essay this week)
 ml_metric: Per-criterion Quadratic Weighted Kappa (QWK), pooled and per rubric criterion, on a 1-4 scale
@@ -168,7 +168,9 @@ Fully designed during a dedicated UI session; a working interactive mockup (`ap-
 - **Grading view**: all 14 criteria shown expanded simultaneously, grouped by essay part (Thesis / Body ¶1's six / Body ¶2's six / Conclusion) rather than one flat list, each with its own strengths/critiques, a collapsed "show model's reasoning" disclosure, and its own independent dispute thread.
 - **Dispute feature**: this is the productized replacement for the ad-hoc Claude.ai back-and-forth described in Why Now. She can discuss any single criterion with Claude and, at resolution, must explicitly pick and save a final score — Claude's own proposed score is never auto-applied.
 - **Missing-criterion handling**: visually and linguistically distinct from a low score everywhere it appears (a `!` marker instead of a number, a dashed inline placeholder in the essay itself where the missing content should have been, different copy in the margin card and in the simulated dispute reply).
-- **Design system**: warm paper surface for the essay itself (legibility takes priority over theme), a pale lavender chrome, a dark plum accent card for feedback and system chrome, Fraunces (serif) for the essay body, Inter for UI text, Caveat (handwritten) reserved for small flourishes only, never for anything that needs to be read carefully.
+- **Design system**: warm paper surface for the essay itself (legibility takes priority over theme), a pale lavender chrome, a dark plum accent card for feedback and system chrome, Petrona (serif) for the essay body, Inter for UI text, Caveat (handwritten) reserved for small flourishes only, never for anything that needs to be read carefully. (Originally speced as Fraunces; swapped to Petrona during the frontend build — see `UI-DESIGN-HANDOFF.md`.)
+
+**Implementation status**: the design above is no longer just spec — it's built. `frontend/` is a real Vite + React + TypeScript + Tailwind app (per Tech stack below), built test-first with Vitest + React Testing Library, covering every screen in the flow with 43 passing tests. Still blocked on backend work: the Graded view renders fixture data regardless of what's pasted (no model endpoint yet), and the class list is still hardcoded. Places where the real build deliberately diverges from the reference mock's shortcuts (exact surface colors instead of nearest Tailwind defaults, the dispute finalize-picker requiring an explicit click rather than auto-applying Claude's suggestion, Paste/Loading/Graded all full-width instead of the mock's sidebar layouts) are documented inline in `UI-DESIGN-HANDOFF.md` as they were made.
 
 ## Offline-to-business validation plan
 
@@ -207,6 +209,7 @@ Re-confirmed late in scoping (after the real rubric was discovered) — the caus
 #### Phase 1 — Grading + comments, full essay, single teacher
 **Goal**: Working app that grades full essays against the real rubric (all 14 per-section outputs + structured feedback), fine-tuned on your wife's ~200 historical triples, used by her directly. Full UI already designed — see UI/UX design above and `UI-DESIGN-HANDOFF.md`.
 **Deliverables**: FastAPI backend + SageMaker fine-tuned endpoint + the designed React frontend + RDS/S3 logging + feedback capture (accept/discuss/correct, per the `raw_grades`/`accepted_grades`/`dispute_messages` data model) built in from the start. Held-out eval (~30-40 essays, curated for adjacent-score coverage) reporting per-criterion QWK, adjacent-pair confusion matrices, and exact/off-by-one accuracy, compared against both heuristic baselines (Claude API zero-shot, chosen base model zero-shot).
+**Status**: the frontend deliverable is done ahead of the rest — real Vite/React/TS/Tailwind app in `frontend/`, full flow test-covered (43 tests), currently pointed at fixture data. FastAPI backend, SageMaker fine-tuned endpoint, RDS/S3 logging, and the held-out eval are not started.
 **Kill criteria**: If, after a full SFT+DPO pass, the held-out eval shows no measurable improvement over baseline on adjacent-score (e.g. 3-vs-4) boundary accuracy across rubric criteria, treat the grading-model approach as not working — pivot to a different value-add (e.g., comments-only without a hard score, or lean into progress-tracking as the real product) rather than continuing to iterate on the same fine-tune blindly.
 
 #### Phase 2 — Pseudonymous per-student progress tracking

@@ -58,4 +58,4 @@ Six tables — see README.md "Data model" for full rationale and DDL. `sessions`
 
 ---
 
-For rejected framings, data risks, leakage audit, system architecture diagram, cost estimates, and full rationale, see `README.md` at repo root. For the frontend design system, screen-by-screen flow, and API contract the UI expects, see `UI-DESIGN-HANDOFF.md`.
+For rejected framings, data risks, leakage audit, system architecture diagram, cost estimates, and full rationale, see `README.md` at repo root. For the frontend design system, screen-by-screen flow, and API contract the UI expects, see `UI-DESIGN-HANDOFF.md`. For measured per-step latency, token usage, and per-essay API cost against the live Claude API, see `MODEL-PERFORMANCE.md`.

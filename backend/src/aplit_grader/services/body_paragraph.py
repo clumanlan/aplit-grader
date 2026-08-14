@@ -5,7 +5,11 @@ from pydantic import BaseModel
 
 from aplit_grader.schemas.rubric import CriterionResult, EssaySection, Sentence
 from aplit_grader.services.inference import GradingModelClient, GradingModelError
-from aplit_grader.services.rubric import criteria_for_section, get_rubric_text
+from aplit_grader.services.rubric import (
+    MISSING_FIELD_GUIDANCE,
+    criteria_for_section,
+    get_rubric_text,
+)
 
 _TOOL_NAME = "submit_body_paragraph_grades"
 
@@ -14,8 +18,8 @@ _BASE_SYSTEM_PROMPT = (
     "rubric, criterion by criterion (Claim, Evidence 1, Reasoning 1, Evidence 2, "
     "Reasoning 2, Synthesis). {framing} You must also write a short coverage_summary "
     "describing what this paragraph argued and which evidence it used — this is passed "
-    "forward as context for grading the next section of the essay."
-)
+    "forward as context for grading the next section of the essay. "
+) + MISSING_FIELD_GUIDANCE
 
 _BP1_FRAMING = "Grade this paragraph on how well it supports the thesis."
 _BP2_FRAMING = (
@@ -63,7 +67,7 @@ def _tool_input_schema(criterion_ids: list[str]) -> dict:
                     "properties": {
                         "criterion_id": {"type": "string", "enum": criterion_ids},
                         "score": {"type": ["integer", "null"]},
-                        "missing": {"type": "boolean"},
+                        "missing": {"type": "boolean", "description": MISSING_FIELD_GUIDANCE},
                         "strengths": {"type": "array", "items": {"type": "string"}},
                         "critiques": {"type": "array", "items": {"type": "string"}},
                         "reasoning": {"type": "string"},

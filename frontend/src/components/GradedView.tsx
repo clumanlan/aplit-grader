@@ -5,28 +5,14 @@ import { DisputeThread, type DisputeMessage } from './DisputeThread'
 import { EssayTag } from './EssayTag'
 import { FinishGradingBar } from './FinishGradingBar'
 import { RubricKey } from './RubricKey'
-
-export interface RubricItem {
-  id: string
-  label: string
-  group: string | null
-  score: number | null
-  missing: boolean
-  strengths: string[]
-  critiques: string[]
-  reasoning: string
-}
-
-export interface EssayChunk {
-  id: string
-  text?: string
-  missing?: boolean
-}
-
-export interface EssayFixture {
-  title: string
-  paras: EssayChunk[][]
-}
+import {
+  CRITERION_ORDER_BY_SECTION,
+  resolveMissingPlacement,
+  type CriterionResult,
+  type GradedEssay,
+  type SectionId,
+  type SectionOfMap,
+} from '../types/essayLinking'
 
 interface DisputeState {
   open: boolean
@@ -39,13 +25,44 @@ interface DisputeState {
 export interface GradedViewProps {
   studentName: string
   classId: string
-  rubric: RubricItem[]
-  essay: EssayFixture
+  assignmentPrompt: string
+  gradedEssay: GradedEssay
   onFinish: () => void
   onNextEssay: () => void
 }
 
-export function GradedView({ studentName, classId, rubric, essay, onFinish, onNextEssay }: GradedViewProps) {
+type RenderItem = { kind: 'sentence'; index: number } | { kind: 'missing'; criterionId: string; afterIndex: number }
+
+const SECTIONS: SectionId[] = ['thesis', 'bp1', 'bp2', 'conclusion']
+
+function buildSectionRenderItems(
+  section: SectionId,
+  sectionIndices: number[],
+  missingCriteriaInSection: string[],
+  rubric: CriterionResult[],
+  sectionOf: SectionOfMap,
+): RenderItem[] {
+  const items: RenderItem[] = sectionIndices.map((index) => ({ kind: 'sentence', index }))
+
+  for (const criterionId of missingCriteriaInSection) {
+    const afterIndex = resolveMissingPlacement(criterionId, section, rubric, sectionOf)
+    if (afterIndex === null) continue
+    items.push({ kind: 'missing', criterionId, afterIndex })
+  }
+
+  const sortKey = (item: RenderItem) => (item.kind === 'sentence' ? item.index : item.afterIndex + 0.5)
+  return items.sort((a, b) => sortKey(a) - sortKey(b))
+}
+
+export function GradedView({
+  studentName,
+  classId,
+  assignmentPrompt,
+  gradedEssay,
+  onFinish,
+  onNextEssay,
+}: GradedViewProps) {
+  const { criteria: rubric, sentences, sectionOf, citingCriteria } = gradedEssay
   const [active, setActive] = useState(rubric[0]?.id ?? '')
   const [overrides, setOverrides] = useState<Record<string, number>>({})
   const [disputes, setDisputes] = useState<Record<string, DisputeState>>({})
@@ -159,28 +176,73 @@ export function GradedView({ studentName, classId, rubric, essay, onFinish, onNe
         <p className="mb-2 text-xs uppercase tracking-[0.15em] text-muted">
           {studentName} · {classId}
         </p>
-        <h1 className="mb-8 pr-20 font-serif text-3xl font-semibold leading-tight">{essay.title}</h1>
+        <h1 className="mb-8 pr-20 font-serif text-3xl font-semibold leading-tight">{assignmentPrompt}</h1>
 
         <div className="font-serif text-[1.0625rem] leading-loose">
-          {essay.paras.map((para, i) => (
-            <p key={i} className="mb-5">
-              {para.map((chunk) => {
-                const item = byId(chunk.id)
-                return (
-                  <span key={chunk.id} id={`para-${chunk.id}`}>
-                    <EssayTag
-                      label={item.label}
-                      missing={!!chunk.missing}
-                      score={item.score}
-                      isActive={active === chunk.id}
-                      onClick={() => jumpToCard(chunk.id)}
-                    />
-                    {!chunk.missing && chunk.text}
-                  </span>
-                )
-              })}
-            </p>
-          ))}
+          {(() => {
+            const usedParaIds = new Set<string>()
+            const markParaId = (criterionId: string) => {
+              if (usedParaIds.has(criterionId)) return false
+              usedParaIds.add(criterionId)
+              return true
+            }
+
+            return SECTIONS.map((section) => {
+              const sectionIndices = Object.entries(sectionOf)
+                .filter(([, s]) => s === section)
+                .map(([idx]) => Number(idx))
+                .sort((a, b) => a - b)
+              const missingInSection = CRITERION_ORDER_BY_SECTION[section].filter(
+                (id) => rubric.find((r) => r.id === id)?.missing ?? false,
+              )
+              const renderItems = buildSectionRenderItems(section, sectionIndices, missingInSection, rubric, sectionOf)
+
+              return (
+                <p key={section} className="mb-5">
+                  {renderItems.map((item) => {
+                    if (item.kind === 'missing') {
+                      const criterion = byId(item.criterionId)
+                      const showId = markParaId(item.criterionId)
+                      return (
+                        <span key={`missing-${item.criterionId}`} id={showId ? `para-${item.criterionId}` : undefined}>
+                          <EssayTag
+                            label={criterion.label}
+                            missing
+                            score={null}
+                            isActive={active === item.criterionId}
+                            onClick={() => jumpToCard(item.criterionId)}
+                          />
+                        </span>
+                      )
+                    }
+
+                    const sentence = sentences.find((s) => s.index === item.index)!
+                    const citingIds = citingCriteria[item.index] ?? []
+                    return (
+                      <span key={`sentence-${item.index}`}>
+                        {citingIds.map((criterionId) => {
+                          const criterion = byId(criterionId)
+                          const showId = markParaId(criterionId)
+                          return (
+                            <span key={criterionId} id={showId ? `para-${criterionId}` : undefined}>
+                              <EssayTag
+                                label={criterion.label}
+                                missing={false}
+                                score={criterion.score}
+                                isActive={active === criterionId}
+                                onClick={() => jumpToCard(criterionId)}
+                              />
+                            </span>
+                          )
+                        })}
+                        {sentence.text}
+                      </span>
+                    )
+                  })}
+                </p>
+              )
+            })
+          })()}
         </div>
       </div>
 

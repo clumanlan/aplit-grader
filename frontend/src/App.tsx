@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { SetupScreen, type SetupValues } from './components/SetupScreen'
 import { SessionBar, type Session } from './components/SessionBar'
 import { PasteScreen, type PasteValues } from './components/PasteScreen'
 import { LoadingScreen } from './components/LoadingScreen'
 import { ErrorScreen } from './components/ErrorScreen'
 import { GradedView } from './components/GradedView'
-import { DEMO_RUBRIC, DEMO_ESSAY } from './fixtures/demoGrading'
+import { gradeEssay, GradeRequestError } from './api/grade'
+import type { GradedEssay } from './types/essayLinking'
 
 const SETUP_CRITERIA = {
   standalone: [
@@ -38,7 +39,6 @@ const SETUP_CRITERIA = {
   ],
 }
 const CLASSES = ['Period 3 — AP Lit', 'Period 5 — AP Lit', 'Period 7 — AP Lit']
-const GRADING_DURATION_MS = 3000
 
 function sectionsLabel(values: SetupValues): string {
   if (values.fullEssay) return 'Full essay'
@@ -52,12 +52,27 @@ function App() {
   const [setupValues, setSetupValues] = useState<SetupValues | null>(null)
   const [isAdjusting, setIsAdjusting] = useState(false)
   const [essay, setEssay] = useState<PasteValues | null>(null)
+  const [gradedEssay, setGradedEssay] = useState<GradedEssay | null>(null)
   const [view, setView] = useState<EssayView>('paste')
-  const gradingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const startGrading = () => {
+  const startGrading = (values: PasteValues | null = essay) => {
+    if (!values || !session) return
     setView('loading')
-    gradingTimeout.current = setTimeout(() => setView('graded'), GRADING_DURATION_MS)
+    gradeEssay({
+      essayText: values.essayText,
+      assignmentPrompt: session.prompt,
+      studentName: values.studentName,
+    })
+      .then((result) => {
+        setGradedEssay(result)
+        setView('graded')
+      })
+      .catch((err: unknown) => {
+        if (err instanceof GradeRequestError) {
+          console.error(err.message, err.cause)
+        }
+        setView('error')
+      })
   }
 
   const handleStartSession = (values: SetupValues) => {
@@ -76,17 +91,17 @@ function App() {
   const handleCancelAdjust = () => setIsAdjusting(false)
 
   const handleNewAssignment = () => {
-    if (gradingTimeout.current) clearTimeout(gradingTimeout.current)
     setSession(null)
     setSetupValues(null)
     setIsAdjusting(false)
     setEssay(null)
+    setGradedEssay(null)
     setView('paste')
   }
 
   const handleGradeEssay = (values: PasteValues) => {
     setEssay(values)
-    startGrading()
+    startGrading(values)
   }
 
   const handleFinish = () => {
@@ -94,8 +109,8 @@ function App() {
   }
 
   const handleNextEssay = () => {
-    if (gradingTimeout.current) clearTimeout(gradingTimeout.current)
     setEssay(null)
+    setGradedEssay(null)
     setView('paste')
   }
 
@@ -151,10 +166,7 @@ function App() {
                     <div className="text-right">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (gradingTimeout.current) clearTimeout(gradingTimeout.current)
-                          setView('error')
-                        }}
+                        onClick={() => setView('error')}
                         className="text-[10px] uppercase tracking-wide text-chrome-text-strong/35"
                       >
                         Preview: simulate failure
@@ -165,12 +177,12 @@ function App() {
               </div>
             )}
 
-            {view === 'graded' && essay && (
+            {view === 'graded' && essay && gradedEssay && (
               <GradedView
                 studentName={essay.studentName}
                 classId={session.classId}
-                rubric={DEMO_RUBRIC}
-                essay={DEMO_ESSAY}
+                assignmentPrompt={session.prompt}
+                gradedEssay={gradedEssay}
                 onFinish={handleFinish}
                 onNextEssay={handleNextEssay}
               />

@@ -1,8 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
-from aplit_grader.services.rubric import CriterionId
+from aplit_grader.services.rubric import RUBRIC, CriterionId
 
 ConfidenceLevel = Literal["high", "medium", "low"]
 
@@ -17,6 +17,25 @@ class CriterionResult(BaseModel):
     sentence_refs: list[int]
     confidence_level: ConfidenceLevel | None = None
     confidence_reason: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def label(self) -> str:
+        return RUBRIC[self.criterion_id].label
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def group(self) -> str | None:
+        # Presentation-only mapping for this response shape: thesis/conclusion
+        # render standalone (no group header) in the frontend, matching
+        # CriterionCard/RubricKey's existing null-means-standalone convention.
+        # RUBRIC itself keeps "Thesis"/"Conclusion" as real Group values (used
+        # elsewhere, e.g. get_rubric_text) — this mapping is local to API
+        # serialization, not a rubric-definition change.
+        raw_group = RUBRIC[self.criterion_id].group
+        if raw_group in ("Thesis", "Conclusion"):
+            return None
+        return raw_group
 
     @model_validator(mode="after")
     def _score_and_missing_must_be_consistent(self) -> "CriterionResult":

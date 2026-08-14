@@ -169,6 +169,21 @@ RUBRIC: dict[CriterionId, RubricCriterion] = {
     ),
 }
 
+# Shared guidance for the `missing` field's semantics, reused across the thesis,
+# body-paragraph, and conclusion calls' system prompts and tool schemas rather than
+# duplicated ad hoc. Added after a live-API failure showed the model marking a
+# criterion missing=true while also giving it a real score and citing real sentences
+# for it — CriterionResult forbids that combination. The field name alone doesn't
+# convey the intended distinction (nothing present at all vs. present but weak),
+# so it needs to be said explicitly, not inferred.
+MISSING_FIELD_GUIDANCE = (
+    "missing must be true ONLY when this section contains no sentence at all that "
+    "attempts to address this criterion (in which case score must be null). If any "
+    "sentence exists — even if it is weak, vague, off-topic, or mere plot summary — "
+    "missing is false and you must score it normally on the 1-4 scale instead "
+    "(typically 1, per the rubric's bottom band)."
+)
+
 Section = Literal["thesis", "body_1", "body_2", "conclusion"]
 
 _SECTION_CRITERIA: dict[Section, list[CriterionId]] = {

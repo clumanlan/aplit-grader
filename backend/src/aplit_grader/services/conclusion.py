@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 from aplit_grader.schemas.rubric import CriterionResult, Sentence
 from aplit_grader.services.inference import GradingModelClient, GradingModelError
-from aplit_grader.services.rubric import get_rubric_text
+from aplit_grader.services.rubric import MISSING_FIELD_GUIDANCE, get_rubric_text
 
 _TOOL_NAME = "submit_conclusion_grade"
 
@@ -11,8 +11,8 @@ _SYSTEM_PROMPT = (
     "provided rubric. Grade it as a synthesis of both body paragraphs: does it draw "
     "real connections between what Body Paragraph 1 and Body Paragraph 2 each argued, "
     "and arrive at a final insight, rather than simply restating the thesis or "
-    "summarizing the paragraphs."
-)
+    "summarizing the paragraphs. "
+) + MISSING_FIELD_GUIDANCE
 
 
 class _ConclusionToolOutput(BaseModel):
@@ -29,7 +29,7 @@ def _tool_input_schema() -> dict:
         "type": "object",
         "properties": {
             "score": {"type": ["integer", "null"]},
-            "missing": {"type": "boolean"},
+            "missing": {"type": "boolean", "description": MISSING_FIELD_GUIDANCE},
             "strengths": {"type": "array", "items": {"type": "string"}},
             "critiques": {"type": "array", "items": {"type": "string"}},
             "reasoning": {"type": "string"},

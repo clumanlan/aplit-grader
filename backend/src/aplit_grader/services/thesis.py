@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from aplit_grader.schemas.rubric import ConfidenceLevel, CriterionResult, Sentence
 from aplit_grader.services.inference import GradingModelClient, GradingModelError
-from aplit_grader.services.rubric import get_rubric_text
+from aplit_grader.services.rubric import MISSING_FIELD_GUIDANCE, get_rubric_text
 
 _TOOL_NAME = "submit_thesis_grade"
 
@@ -17,8 +17,8 @@ _SYSTEM_PROMPT = (
     "best reconstruction based on the essay's overall content so downstream grading "
     "has something to work against. Report your confidence in this thesis "
     "identification as a bucket (high/medium/low) with a short reason — do not "
-    "self-report a numeric confidence score."
-)
+    "self-report a numeric confidence score. "
+) + MISSING_FIELD_GUIDANCE
 
 
 class _ThesisToolOutput(BaseModel):
@@ -44,7 +44,7 @@ def _tool_input_schema() -> dict:
         "type": "object",
         "properties": {
             "score": {"type": ["integer", "null"]},
-            "missing": {"type": "boolean"},
+            "missing": {"type": "boolean", "description": MISSING_FIELD_GUIDANCE},
             "strengths": {"type": "array", "items": {"type": "string"}},
             "critiques": {"type": "array", "items": {"type": "string"}},
             "reasoning": {"type": "string"},

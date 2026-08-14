@@ -1,36 +1,36 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { GradedView, type RubricItem } from './GradedView'
+import { GradedView } from './GradedView'
+import type { GradedEssay } from '../types/essayLinking'
 
-const RUBRIC: RubricItem[] = [
-  {
-    id: 'thesis',
-    label: 'Thesis',
-    group: null,
-    score: 3,
-    missing: false,
-    strengths: ['Clear claim.'],
-    critiques: ['Push further.'],
-    reasoning: 'Held at 3 because...',
-  },
-  {
-    id: 'bp1-reasoning-1',
-    label: 'Reasoning 1',
-    group: 'Body ¶1',
-    score: null,
-    missing: true,
-    strengths: [],
-    critiques: ['Add a sentence connecting evidence to claim.'],
-    reasoning: 'Nothing follows the evidence.',
-  },
-]
-
-const ESSAY = {
-  title: 'Test Essay',
-  paras: [
-    [{ id: 'thesis', text: 'This is the thesis sentence.' }],
-    [{ id: 'bp1-reasoning-1', missing: true }],
+const GRADED_ESSAY: GradedEssay = {
+  sentences: [{ index: 0, text: 'This is the thesis sentence.' }],
+  sectionOf: { 0: 'thesis' },
+  citingCriteria: { 0: ['thesis'] },
+  criteria: [
+    {
+      id: 'thesis',
+      label: 'Thesis',
+      group: null,
+      score: 3,
+      missing: false,
+      strengths: ['Clear claim.'],
+      critiques: ['Push further.'],
+      reasoning: 'Held at 3 because...',
+      sentence_refs: [0],
+    },
+    {
+      id: 'bp1-reasoning-1',
+      label: 'Reasoning 1',
+      group: 'Body ¶1',
+      score: null,
+      missing: true,
+      strengths: [],
+      critiques: ['Add a sentence connecting evidence to claim.'],
+      reasoning: 'Nothing follows the evidence.',
+      sentence_refs: [],
+    },
   ],
 }
 
@@ -39,8 +39,8 @@ function renderGradedView(onFinish = vi.fn(), onNextEssay = vi.fn()) {
     <GradedView
       studentName="Jordan"
       classId="Period 3 — AP Lit"
-      rubric={RUBRIC}
-      essay={ESSAY}
+      assignmentPrompt="Analyze the symbolism"
+      gradedEssay={GRADED_ESSAY}
       onFinish={onFinish}
       onNextEssay={onNextEssay}
     />,

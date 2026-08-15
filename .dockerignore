@@ -1,0 +1,12 @@
+**/node_modules
+**/.venv
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+backend/grading_results
+backend/.env
+.git
+.gitignore
+*.md

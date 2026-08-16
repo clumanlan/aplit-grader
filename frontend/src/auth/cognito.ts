@@ -9,7 +9,7 @@
 // client has no client secret), so hardcoded fallbacks are safe to ship.
 const COGNITO_REGION = (import.meta.env.VITE_COGNITO_REGION as string | undefined) ?? 'us-east-2'
 const COGNITO_APP_CLIENT_ID =
-  (import.meta.env.VITE_COGNITO_APP_CLIENT_ID as string | undefined) ?? '4tpkjhn2v74cjr9rbmca3kjih8'
+  (import.meta.env.VITE_COGNITO_APP_CLIENT_ID as string | undefined) ?? '7amuvrc9l1sn727kqp6paraoqk'
 const COGNITO_ENDPOINT = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/`
 
 export class CognitoAuthError extends Error {
@@ -104,7 +104,14 @@ export async function completeNewPassword(
     ChallengeName: 'NEW_PASSWORD_REQUIRED',
     ClientId: COGNITO_APP_CLIENT_ID,
     Session: session,
-    ChallengeResponses: { USERNAME: username, NEW_PASSWORD: newPassword },
+    ChallengeResponses: {
+      USERNAME: username,
+      NEW_PASSWORD: newPassword,
+      // The pool requires preferred_username but this app has no separate
+      // concept of one — users sign in by email only — so default it to the
+      // same email rather than asking for a value nothing else uses.
+      'userAttributes.preferred_username': username,
+    },
   })
 
   if (!data.AuthenticationResult) throw new CognitoAuthError('Could not set the new password.')

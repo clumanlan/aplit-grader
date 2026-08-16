@@ -17,7 +17,7 @@ COPY frontend/ ./
 # vars from process.env at `npm run build` time, so these must be ENV, not
 # just ARG, before the build step runs.
 ARG VITE_COGNITO_REGION=us-east-2
-ARG VITE_COGNITO_APP_CLIENT_ID=4tpkjhn2v74cjr9rbmca3kjih8
+ARG VITE_COGNITO_APP_CLIENT_ID=7amuvrc9l1sn727kqp6paraoqk
 ENV VITE_COGNITO_REGION=${VITE_COGNITO_REGION}
 ENV VITE_COGNITO_APP_CLIENT_ID=${VITE_COGNITO_APP_CLIENT_ID}
 RUN npm run build

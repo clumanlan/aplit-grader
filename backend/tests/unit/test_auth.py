@@ -21,7 +21,7 @@ def settings():
     return Settings(
         cognito_region="us-east-2",
         cognito_user_pool_id="us-east-2_hZY5RNs81",
-        cognito_app_client_id="4tpkjhn2v74cjr9rbmca3kjih8",
+        cognito_app_client_id="7amuvrc9l1sn727kqp6paraoqk",
     )
 
 

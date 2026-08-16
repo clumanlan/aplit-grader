@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { signIn } from './cognito'
+import { completeNewPassword, signIn } from './cognito'
 
 function mockCognitoResponse(body: unknown, status = 200): void {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(body), { status }))
@@ -28,7 +28,7 @@ describe('cognito signIn', () => {
     const body = JSON.parse(init?.body as string)
     expect(body).toEqual({
       AuthFlow: 'USER_PASSWORD_AUTH',
-      ClientId: '4tpkjhn2v74cjr9rbmca3kjih8',
+      ClientId: '7amuvrc9l1sn727kqp6paraoqk',
       AuthParameters: { USERNAME: 'teacher@example.com', PASSWORD: 'hunter2' },
     })
   })
@@ -55,5 +55,36 @@ describe('cognito signIn', () => {
     const [, init] = vi.mocked(globalThis.fetch).mock.calls[0]
     const headerNames = [...new Headers(init?.headers).keys()]
     expect(headerNames.sort()).toEqual(['content-type', 'x-amz-target'])
+  })
+})
+
+describe('cognito completeNewPassword', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('defaults preferred_username to the email — the pool requires it but this app has no separate username', async () => {
+    mockCognitoResponse({
+      AuthenticationResult: { AccessToken: 'fake-token', IdToken: 'x', ExpiresIn: 3600, TokenType: 'Bearer' },
+    })
+
+    await completeNewPassword('teacher@example.com', 'new-secure-password', 'fake-session')
+
+    const fetchSpy = vi.mocked(globalThis.fetch)
+    const [, init] = fetchSpy.mock.calls[0]
+    const headers = new Headers(init?.headers)
+    expect(headers.get('X-Amz-Target')).toBe('AWSCognitoIdentityProviderService.RespondToAuthChallenge')
+
+    const body = JSON.parse(init?.body as string)
+    expect(body).toEqual({
+      ChallengeName: 'NEW_PASSWORD_REQUIRED',
+      ClientId: '7amuvrc9l1sn727kqp6paraoqk',
+      Session: 'fake-session',
+      ChallengeResponses: {
+        USERNAME: 'teacher@example.com',
+        NEW_PASSWORD: 'new-secure-password',
+        'userAttributes.preferred_username': 'teacher@example.com',
+      },
+    })
   })
 })

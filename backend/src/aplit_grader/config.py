@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # frontend). Overridable via env for other environments/pools.
     cognito_region: str = "us-east-2"
     cognito_user_pool_id: str = "us-east-2_hZY5RNs81"
-    cognito_app_client_id: str = "4tpkjhn2v74cjr9rbmca3kjih8"
+    cognito_app_client_id: str = "7amuvrc9l1sn727kqp6paraoqk"
 
 
 @lru_cache

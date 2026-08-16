@@ -1,7 +1,12 @@
 import { clearAuth, getAccessToken } from '../auth/authStore'
 import type { CriterionResult, EssaySentence, GradedEssay, SectionId } from '../types/essayLinking'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
+// Falls back to a relative path (same-origin) when unset, which is correct for
+// production: the Dockerfile serves frontend/dist from the same FastAPI app
+// that handles /grade (main.py), so no absolute URL needs to be baked in at
+// build time. Local dev overrides this via frontend/.env's VITE_API_BASE_URL
+// since the Vite dev server and backend run on different ports there.
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
 export interface GradeRequestPayload {
   essayText: string

@@ -2,8 +2,14 @@
 // InitiateAuthCommand/RespondToAuthChallengeCommand would make) — no AWS SDK
 // dependency needed for a single public app client with USER_PASSWORD_AUTH enabled.
 
-const COGNITO_REGION = 'us-east-2'
-const COGNITO_APP_CLIENT_ID = '4tpkjhn2v74cjr9rbmca3kjih8'
+// Region + app client ID are the only two pieces of Cognito config this direct
+// InitiateAuth call needs — the user pool ID isn't part of the public
+// InitiateAuth request (only AdminInitiateAuth takes it); the pool ID matters
+// server-side, for JWKS validation. Both env vars are non-secret (this app
+// client has no client secret), so hardcoded fallbacks are safe to ship.
+const COGNITO_REGION = (import.meta.env.VITE_COGNITO_REGION as string | undefined) ?? 'us-east-2'
+const COGNITO_APP_CLIENT_ID =
+  (import.meta.env.VITE_COGNITO_APP_CLIENT_ID as string | undefined) ?? '4tpkjhn2v74cjr9rbmca3kjih8'
 const COGNITO_ENDPOINT = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/`
 
 export class CognitoAuthError extends Error {

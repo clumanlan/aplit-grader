@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { setAuthenticated } from './auth/authStore'
+import { clearAuth, setAuthenticated } from './auth/authStore'
 import { useAuth } from './auth/useAuth'
 import { LoginScreen } from './components/LoginScreen'
 import { SetupScreen, type SetupValues } from './components/SetupScreen'
@@ -123,10 +123,19 @@ function App() {
   return (
     <div className="min-h-screen w-full bg-chrome">
       <div className="border-b border-black/10">
-        <div className="mx-auto max-w-6xl px-6 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <span className="font-sans text-xs font-bold uppercase tracking-[0.18em] text-chrome-text-strong">
             AP Lit Essay Grader
           </span>
+          {accessToken && (
+            <button
+              type="button"
+              onClick={() => clearAuth()}
+              className="font-sans text-xs font-semibold uppercase tracking-wide text-chrome-text-strong/60"
+            >
+              Sign out
+            </button>
+          )}
         </div>
       </div>
       <div className={isGraded ? 'mx-auto max-w-6xl px-6 py-10' : 'mx-auto max-w-3xl px-6 py-10'}>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { disputeTurn, resolveDispute, DisputeRequestError } from '../api/dispute'
 import { BackToTop } from './BackToTop'
 import { CriterionCard } from './CriterionCard'
 import { DisputeThread, type DisputeMessage } from './DisputeThread'
@@ -19,13 +20,28 @@ interface DisputeState {
   messages: DisputeMessage[]
   sending: boolean
   resolved: boolean
+  resolving: boolean
   proposedScore: number | null
+  // Set alongside proposedScore — the raw_grades row a "Save correction" click
+  // resolves against. Required by POST /grade/dispute/resolve for resolution='corrected'.
+  proposalRawGradeId: string | null
+}
+
+const EMPTY_DISPUTE: DisputeState = {
+  open: true,
+  messages: [],
+  sending: false,
+  resolved: false,
+  resolving: false,
+  proposedScore: null,
+  proposalRawGradeId: null,
 }
 
 export interface GradedViewProps {
   studentName: string
   classId: string
   assignmentPrompt: string
+  essayText: string
   gradedEssay: GradedEssay
   onFinish: () => void
   onNextEssay: () => void
@@ -58,6 +74,7 @@ export function GradedView({
   studentName,
   classId,
   assignmentPrompt,
+  essayText,
   gradedEssay,
   onFinish,
   onNextEssay,
@@ -95,51 +112,95 @@ export function GradedView({
   const openDispute = (id: string) => {
     setDisputes((d) => ({
       ...d,
-      [id]: d[id]
-        ? { ...d[id], open: true }
-        : { open: true, messages: [], sending: false, resolved: false, proposedScore: null },
+      [id]: d[id] ? { ...d[id], open: true } : EMPTY_DISPUTE,
     }))
   }
 
   const sendMessage = (id: string, text: string) => {
+    const priorMessages = disputes[id]?.messages ?? []
+    const outgoing: DisputeMessage = { role: 'teacher', text }
+
     setDisputes((d) => {
-      const prev = d[id] ?? { open: true, messages: [], sending: false, resolved: false, proposedScore: null }
+      const prev = d[id] ?? EMPTY_DISPUTE
       return {
         ...d,
-        [id]: { ...prev, open: true, messages: [...prev.messages, { role: 'teacher', text }], sending: true },
+        [id]: { ...prev, open: true, messages: [...prev.messages, outgoing], sending: true },
       }
     })
 
-    setTimeout(() => {
-      const item = byId(id)
-      const proposed = item.missing ? 1 : Math.max(1, effScore(id) - 1)
-      const replyText = item.missing
-        ? "I looked again, and I still don't see content in the essay that addresses this. The options are to keep this flagged as missing, or assign a floor score of 1/4."
-        : `You're right to push on this — re-reading ${item.label.toLowerCase()} against the rubric's boundary, I'd put this at ${proposed}/4 instead. Does that match what you're seeing?`
-
-      setDisputes((d) => {
-        const prev = d[id]
-        return {
-          ...d,
-          [id]: {
-            ...prev,
-            messages: [...prev.messages, { role: 'claude', text: replyText }],
-            sending: false,
-            proposedScore: proposed,
-          },
-        }
+    const item = byId(id)
+    disputeTurn({
+      essayId: gradedEssay.essayId,
+      classId,
+      essayText,
+      assignmentPrompt,
+      original: item,
+      messages: [...priorMessages, outgoing],
+    })
+      .then((result) => {
+        setDisputes((d) => {
+          const prev = d[id]
+          return {
+            ...d,
+            [id]: {
+              ...prev,
+              messages: [...prev.messages, { role: 'claude', text: result.message }],
+              sending: false,
+              proposedScore: result.proposal?.score ?? prev.proposedScore,
+              proposalRawGradeId: result.proposalRawGradeId ?? prev.proposalRawGradeId,
+            },
+          }
+        })
       })
-    }, 900)
+      .catch((err: unknown) => {
+        if (err instanceof DisputeRequestError) {
+          console.error(err.message, err.cause)
+        }
+        setDisputes((d) => {
+          const prev = d[id]
+          return {
+            ...d,
+            [id]: {
+              ...prev,
+              messages: [
+                ...prev.messages,
+                { role: 'claude', text: "Something went wrong reaching the grading service. Try again." },
+              ],
+              sending: false,
+            },
+          }
+        })
+      })
   }
 
-  const saveCorrection = (id: string, score: number) => {
-    setOverrides((o) => ({ ...o, [id]: score }))
-    setDisputes((d) => ({ ...d, [id]: { ...d[id], resolved: true } }))
+  const resolveDisputeWith = (id: string, resolution: 'corrected' | 'kept_original', score?: number) => {
+    setDisputes((d) => ({ ...d, [id]: { ...d[id], resolving: true } }))
+
+    resolveDispute({
+      essayId: gradedEssay.essayId,
+      criterionId: id,
+      resolution,
+      rawGradeId: resolution === 'corrected' ? (disputes[id]?.proposalRawGradeId ?? undefined) : undefined,
+    })
+      .then(() => {
+        if (score !== undefined) {
+          setOverrides((o) => ({ ...o, [id]: score }))
+        }
+        setDisputes((d) => ({ ...d, [id]: { ...d[id], resolved: true, resolving: false } }))
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DisputeRequestError) {
+          console.error(err.message, err.cause)
+        }
+        // Left unresolved on failure — Finish grading stays blocked, same as any
+        // other open dispute, rather than silently pretending the save succeeded.
+        setDisputes((d) => ({ ...d, [id]: { ...d[id], resolving: false } }))
+      })
   }
 
-  const keepOriginal = (id: string) => {
-    setDisputes((d) => ({ ...d, [id]: { ...d[id], resolved: true } }))
-  }
+  const saveCorrection = (id: string, score: number) => resolveDisputeWith(id, 'corrected', score)
+
+  const keepOriginal = (id: string) => resolveDisputeWith(id, 'kept_original')
 
   const openUnresolvedCount = Object.values(disputes).filter((d) => d.open && !d.resolved).length
   const correctedCount = Object.keys(overrides).length

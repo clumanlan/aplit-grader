@@ -68,6 +68,8 @@ export interface CriterionResult {
 
 /** Full response shape the /grade endpoint returns (or a client-side inversion produces). */
 export interface GradedEssay {
+  /** Postgres essays.id — the anchor for dispute/resolve calls against this essay. */
+  essayId: string;
   sentences: EssaySentence[];
   sectionOf: SectionOfMap;
   citingCriteria: CitingCriteriaMap;

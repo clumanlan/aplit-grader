@@ -143,3 +143,68 @@ async def test_generate_structured_leaves_a_field_alone_when_it_isnt_valid_json(
     )
 
     assert result["sentence_sections"] == "not json at all"
+
+
+def _fake_anthropic_chat_client(content_blocks: list[SimpleNamespace]):
+    response = SimpleNamespace(content=content_blocks)
+    fake = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(return_value=response)))
+    return fake
+
+
+@pytest.mark.asyncio
+async def test_generate_chat_turn_returns_plain_text_when_no_tool_is_called():
+    fake_client = _fake_anthropic_chat_client(
+        [SimpleNamespace(type="text", text="I'd push back on that reading.")]
+    )
+    client = AnthropicGradingClient(model="claude-sonnet-5-test", sdk_client=fake_client)
+
+    result = await client.generate_chat_turn(
+        system_prompt="system",
+        messages=[{"role": "user", "content": "I think this deserves a 3."}],
+        tool_name="propose_revised_grade",
+        tool_description="Propose a revised grade.",
+        tool_input_schema={"type": "object", "properties": {"score": {"type": "integer"}}},
+    )
+
+    assert result.text == "I'd push back on that reading."
+    assert result.tool_input is None
+
+
+@pytest.mark.asyncio
+async def test_generate_chat_turn_returns_tool_input_alongside_text():
+    fake_client = _fake_anthropic_chat_client(
+        [
+            SimpleNamespace(type="text", text="Fair point — I hadn't weighed that sentence."),
+            SimpleNamespace(type="tool_use", name="propose_revised_grade", input={"score": 3}),
+        ]
+    )
+    client = AnthropicGradingClient(model="claude-sonnet-5-test", sdk_client=fake_client)
+
+    result = await client.generate_chat_turn(
+        system_prompt="system",
+        messages=[{"role": "user", "content": "What about sentence 4?"}],
+        tool_name="propose_revised_grade",
+        tool_description="Propose a revised grade.",
+        tool_input_schema={"type": "object", "properties": {"score": {"type": "integer"}}},
+    )
+
+    assert result.text == "Fair point — I hadn't weighed that sentence."
+    assert result.tool_input == {"score": 3}
+
+
+@pytest.mark.asyncio
+async def test_generate_chat_turn_uses_auto_tool_choice_not_forced():
+    fake_client = _fake_anthropic_chat_client([SimpleNamespace(type="text", text="ok")])
+    client = AnthropicGradingClient(model="claude-sonnet-5-test", sdk_client=fake_client)
+
+    await client.generate_chat_turn(
+        system_prompt="system",
+        messages=[{"role": "user", "content": "hi"}],
+        tool_name="propose_revised_grade",
+        tool_description="Propose a revised grade.",
+        tool_input_schema={"type": "object"},
+    )
+
+    call_kwargs = fake_client.messages.create.call_args.kwargs
+    assert call_kwargs["tool_choice"] == {"type": "auto"}
+    assert call_kwargs["messages"] == [{"role": "user", "content": "hi"}]

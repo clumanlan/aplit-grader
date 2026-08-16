@@ -260,7 +260,16 @@ needed once a graded essay is 14 cards deep.
 
 ## API contract the UI expects
 
-Per criterion, the backend needs to return:
+**Superseded 2026-08-13/14 — kept below for historical reference only; see "Resolved: essay/criterion
+linking model" in `FRONTEND-BACKEND-INTEGRATION.md` for the shape actually implemented.** The
+`span: {start, end}` character-offset idea below was never built: the real backend returns a
+deterministic sentence list plus two lookup maps (`sectionOf` for which paragraph a sentence
+renders in, `citingCriteria` for which criteria cite it) keyed by sentence index, not character
+offsets — because citations can interleave (`bp2-evidence-2`/`bp2-reasoning-2` sandwich each
+other in real logged output), which a single per-criterion span can't represent. `POST /grade`'s
+actual response (`GradeResponse` in `backend/src/aplit_grader/schemas/requests.py`) also carries
+an `essay_id` (added 2026-08-16) — the anchor `POST /grade/dispute` and `POST /grade/dispute/resolve`
+calls need — which didn't exist when this section was first written:
 
 ```jsonc
 {
@@ -272,18 +281,9 @@ Per criterion, the backend needs to return:
   "strengths": [],                       // can be empty (see missing-state copy above)
   "critiques": ["...", "..."],
   "reasoning": "...",                    // rubric-boundary justification, always present
-  "span": { "start": 412, "end": 498 }   // OPEN QUESTION — see below
+  "span": { "start": 412, "end": 498 }   // NOT WHAT SHIPPED — see note above
 }
 ```
-
-**Open question, blocks a clean implementation**: the mock hardcodes which essay sentence
-belongs to which criterion by matching ids in fixture data. A real essay needs the backend to
-tell the frontend *where* in the raw essay text each criterion's feedback applies — character
-offsets, sentence indices, or similar — so the inline tags and the "missing" placeholder can
-be positioned correctly for arbitrary submitted text. Whether this is emitted directly by the
-grading model or computed as a separate alignment pass is undecided; flagged in README's Open
-questions. Nothing else in this doc depends on the answer, but the highlighting UI can't ship
-without one.
 
 ## Known mock limitations (do not treat these as the target behavior)
 
@@ -291,11 +291,22 @@ without one.
   what's actually pasted in. The paste/loading/error states do show her real typed input; only
   the graded view swaps to fixture data. A real build obviously renders the model's actual
   scored output against her actual submitted essay.
-- **The simulated Claude dispute replies are canned**, not real model calls — real
-  implementation calls the grading endpoint (or a lighter-weight discussion endpoint) with the
-  conversation so far and returns a real response + proposed score.
-- **Class list is hardcoded** (`Period 3/5/7`) — real version reads from the class table
-  referenced in README's Tech stack / Phase 2 groundwork.
-- **No persistence** — all state (overrides, disputes, session) lives in React state and is
-  lost on refresh. Every place this doc says "written to `accepted_grades`" or similar is
-  describing the intended backend write, not something the mock actually does.
+- **The simulated Claude dispute replies were canned**, not real model calls, in the original
+  reference mock (`ap-lit-grader-full-flow.jsx`). **Built for real, 2026-08-16**: the actual
+  `frontend/` app's `GradedView.tsx` calls `POST /grade/dispute` (a real conversational
+  back-and-forth, `tool_choice: "auto"`) and `POST /grade/dispute/resolve` (Save
+  correction/Keep original) — see README's 2026-08-16 Decisions log for the full design,
+  including the anti-sycophancy system prompt. This bullet now describes only the untouched
+  `.jsx` reference mock, not the real app.
+- **Class list is hardcoded** (`Period 3/5/7`) — still true, and still the real app's actual
+  behavior, not just the mock's — a real class table is Phase 2 groundwork per README's Tech
+  stack. `class_id` itself (the string value) does now flow all the way to the backend and get
+  persisted (2026-08-16); only the *source* of the hardcoded list hasn't changed.
+- **No persistence, in the original reference mock** — all state (overrides, disputes, session)
+  lives in React state there and is lost on refresh. **The real `frontend/` app is different as
+  of 2026-08-16**: `POST /grade` and `POST /grade/dispute` persist to real Postgres
+  (`sessions`/`essays`/`raw_grades`/`disputes`/`dispute_messages`), and `POST /grade/dispute/resolve`
+  persists `accepted_grades` on an explicit Save correction/Keep original click. What's still
+  React-state-only in the real app: `overrides` isn't re-hydrated from the backend on refresh
+  (a resolved dispute's outcome is durable server-side, but the UI doesn't yet re-fetch it), and
+  the "Finish grading" bulk-accept action has no backend call at all.

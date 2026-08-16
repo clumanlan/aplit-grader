@@ -4,13 +4,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aplit_grader.api.auth import TeacherIdentity, get_current_teacher
-from aplit_grader.api.routes import get_grading_client, get_result_logger
+from aplit_grader.api.routes import get_database, get_grading_client, get_result_logger
 from aplit_grader.main import app
 from aplit_grader.schemas.requests import GradeResponse
 from aplit_grader.services.pipeline import PipelineStepEvent
 from aplit_grader.services.rubric import RUBRIC
 from aplit_grader.storage.result_logger import ResultLogger, RunContext
 from tests.fixtures.canned_pipeline_responses import happy_path_responses
+from tests.fixtures.fake_database import FakeDatabase
 from tests.fixtures.fake_grading_client import FakeGradingModelClient
 from tests.fixtures.sample_essays import (
     GATSBY_ASSIGNMENT_PROMPT,
@@ -41,6 +42,11 @@ def recording_logger():
 
 
 @pytest.fixture
+def fake_database():
+    return FakeDatabase()
+
+
+@pytest.fixture
 def client_factory():
     """Overrides get_grading_client with a FakeGradingModelClient built from the given responses."""
 
@@ -51,10 +57,11 @@ def client_factory():
 
 
 @pytest.fixture
-def test_client(recording_logger):
+def test_client(recording_logger, fake_database):
     def _make(fake_grading_client):
         app.dependency_overrides[get_grading_client] = lambda: fake_grading_client
         app.dependency_overrides[get_result_logger] = lambda: recording_logger
+        app.dependency_overrides[get_database] = lambda: fake_database
         app.dependency_overrides[get_current_teacher] = lambda: TeacherIdentity(
             sub="test-teacher-sub", username="teacher@example.com"
         )
@@ -81,6 +88,31 @@ def test_grade_endpoint_returns_all_fourteen_criteria_on_happy_path(test_client,
     assert response.status_code == 200
     body = response.json()
     assert {c["criterion_id"] for c in body["criteria"]} == set(RUBRIC)
+
+
+def test_grade_endpoint_persists_the_session_essay_and_all_fourteen_raw_grades(
+    test_client, client_factory, fake_database
+):
+    fake_client = client_factory(happy_path_responses())
+    client = test_client(fake_client)
+
+    response = client.post(
+        "/grade",
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
+            "student_name": "Jane Doe",
+        },
+    )
+
+    assert response.json()["essay_id"] == str(fake_database.essay_id)
+    assert len(fake_database.grading_run_calls) == 1
+    call = fake_database.grading_run_calls[0]
+    assert call["teacher_id"] == "test-teacher-sub"
+    assert call["class_id"] == GATSBY_CLASS_ID
+    assert call["student_name"] == "Jane Doe"
+    assert len(call["criteria"]) == 14
 
 
 def test_grade_endpoint_logs_each_step_and_the_final_result(

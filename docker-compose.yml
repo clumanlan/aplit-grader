@@ -1,0 +1,19 @@
+# Local Postgres for dev/testing only. Not used in production — Express Mode's
+# RDS is private-only, reachable from the ECS service's security group (see
+# README's Decisions log, 2026-08-15 entry). This is a disposable stand-in with
+# the same schema, so the app can be developed and tested against a real
+# Postgres before deploy.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: aplit_grader
+      POSTGRES_PASSWORD: local_dev_only
+      POSTGRES_DB: aplit_grader
+    ports:
+      - "5432:5432"
+    volumes:
+      - aplit_grader_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  aplit_grader_postgres_data:

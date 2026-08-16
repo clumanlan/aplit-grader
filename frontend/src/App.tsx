@@ -199,6 +199,7 @@ function App() {
                 studentName={essay.studentName}
                 classId={session.classId}
                 assignmentPrompt={session.prompt}
+                essayText={essay.essayText}
                 gradedEssay={gradedEssay}
                 onFinish={handleFinish}
                 onNextEssay={handleNextEssay}

@@ -1,5 +1,6 @@
 import json
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import anthropic
@@ -7,6 +8,16 @@ import anthropic
 
 class GradingModelError(Exception):
     """Raised when a grading model call fails to produce the expected structured output."""
+
+
+@dataclass
+class ChatTurnResult:
+    """One turn of a conversational (non-forced-tool-use) call — Claude may reply in
+    plain text, call the offered tool, or (occasionally) do both in the same turn.
+    """
+
+    text: str
+    tool_input: dict[str, Any] | None
 
 
 class GradingModelClient(ABC):
@@ -25,6 +36,22 @@ class GradingModelClient(ABC):
         tool_input_schema: dict[str, Any],
     ) -> dict[str, Any]:
         """Call the model with forced tool use and return the tool call's input."""
+        ...
+
+    @abstractmethod
+    async def generate_chat_turn(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        tool_name: str,
+        tool_description: str,
+        tool_input_schema: dict[str, Any],
+    ) -> ChatTurnResult:
+        """Call the model with optional (not forced) tool use, for a back-and-forth
+        conversation where most turns are plain discussion rather than a structured
+        output the caller requires every time.
+        """
         ...
 
 
@@ -101,3 +128,38 @@ class AnthropicGradingClient(GradingModelClient):
                 return _repair_stringified_fields(block.input, tool_input_schema)
 
         raise GradingModelError(f"No tool_use block for '{tool_name}' in model response")
+
+    async def generate_chat_turn(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        tool_name: str,
+        tool_description: str,
+        tool_input_schema: dict[str, Any],
+    ) -> ChatTurnResult:
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+            tools=[
+                {
+                    "name": tool_name,
+                    "description": tool_description,
+                    "input_schema": tool_input_schema,
+                }
+            ],
+            tool_choice={"type": "auto"},
+        )
+
+        text_parts: list[str] = []
+        tool_input: dict[str, Any] | None = None
+        for block in response.content:
+            block_type = getattr(block, "type", None)
+            if block_type == "text":
+                text_parts.append(block.text)
+            elif block_type == "tool_use" and block.name == tool_name:
+                tool_input = _repair_stringified_fields(block.input, tool_input_schema)
+
+        return ChatTurnResult(text="\n".join(text_parts).strip(), tool_input=tool_input)

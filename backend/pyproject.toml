@@ -44,5 +44,6 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "live: hits the real Anthropic API, skipped by default (deselect with -m 'not live' or select with -m live)",
+    "db: needs a real Postgres reachable at DATABASE_URL (docker compose up -d at repo root) — auto-skipped if unreachable",
 ]
 addopts = "-m 'not live'"

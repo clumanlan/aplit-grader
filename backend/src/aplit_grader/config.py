@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     result_logger_local_dir: str = "./grading_results"
     s3_bucket: str | None = None
 
+    # Local dev/test default matches docker-compose.yml's postgres service at repo
+    # root. Production points this at the real (private, VPC-only) RDS instance.
+    database_url: str = "postgresql+psycopg2://aplit_grader:local_dev_only@localhost:5432/aplit_grader"
+
     # Not secrets — a Cognito user pool ID and app client ID are public identifiers
     # (the client here has no client secret, since it's called directly from the
     # frontend). Overridable via env for other environments/pools.

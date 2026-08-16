@@ -3,8 +3,19 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { GradedView } from './GradedView'
 import type { GradedEssay } from '../types/essayLinking'
+import { disputeTurn, resolveDispute } from '../api/dispute'
+
+vi.mock('../api/dispute', () => ({
+  disputeTurn: vi.fn(),
+  resolveDispute: vi.fn(),
+  DisputeRequestError: class DisputeRequestError extends Error {},
+}))
+
+const mockedDisputeTurn = vi.mocked(disputeTurn)
+const mockedResolveDispute = vi.mocked(resolveDispute)
 
 const GRADED_ESSAY: GradedEssay = {
+  essayId: 'essay-123',
   sentences: [{ index: 0, text: 'This is the thesis sentence.' }],
   sectionOf: { 0: 'thesis' },
   citingCriteria: { 0: ['thesis'] },
@@ -40,6 +51,7 @@ function renderGradedView(onFinish = vi.fn(), onNextEssay = vi.fn()) {
       studentName="Jordan"
       classId="Period 3 — AP Lit"
       assignmentPrompt="Analyze the symbolism"
+      essayText="This is the thesis sentence."
       gradedEssay={GRADED_ESSAY}
       onFinish={onFinish}
       onNextEssay={onNextEssay}
@@ -48,7 +60,12 @@ function renderGradedView(onFinish = vi.fn(), onNextEssay = vi.fn()) {
 }
 
 describe('GradedView', () => {
-  it('opens a dispute, sends a message, and shows the simulated Claude reply with a proposed score', async () => {
+  it('opens a dispute, sends a message, and shows Claude\'s reply with a proposed score', async () => {
+    mockedDisputeTurn.mockResolvedValue({
+      message: "You're right to push on this — I'd put this at 2/4 instead.",
+      proposal: { ...GRADED_ESSAY.criteria[0], score: 2 },
+      proposalRawGradeId: 'raw-grade-1',
+    })
     const user = userEvent.setup()
     renderGradedView()
 
@@ -62,12 +79,25 @@ describe('GradedView', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }))
 
     expect(screen.getByText('This feels low for the evidence given.')).toBeInTheDocument()
-    expect(screen.getByText('Thinking…')).toBeInTheDocument()
 
     expect(await screen.findByText('Finalize your score', {}, { timeout: 2000 })).toBeInTheDocument()
+    expect(mockedDisputeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        essayText: 'This is the thesis sentence.',
+        assignmentPrompt: 'Analyze the symbolism',
+        original: expect.objectContaining({ id: 'thesis' }),
+        messages: [{ role: 'teacher', text: 'This feels low for the evidence given.' }],
+      }),
+    )
   })
 
   it('saving a correction updates the badge, shows the audit line, and increments the corrected count in the Finish bar', async () => {
+    mockedDisputeTurn.mockResolvedValue({
+      message: "You're right — I'd put this at 2/4 instead.",
+      proposal: { ...GRADED_ESSAY.criteria[0], score: 2 },
+      proposalRawGradeId: 'raw-grade-1',
+    })
+    mockedResolveDispute.mockResolvedValue({ acceptedGradeId: 'accepted-1', score: 2, missing: false })
     const user = userEvent.setup()
     renderGradedView()
 
@@ -79,8 +109,56 @@ describe('GradedView', () => {
     await user.click(screen.getByRole('button', { name: '2' }))
     await user.click(screen.getByRole('button', { name: 'Save correction' }))
 
-    expect(screen.getByText('Originally 3/4 by Claude — corrected to 2/4 by you')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Originally 3/4 by Claude — corrected to 2/4 by you'),
+    ).toBeInTheDocument()
     expect(screen.getByText('1 criterion corrected · 1 accepted as graded.')).toBeInTheDocument()
+    expect(mockedResolveDispute).toHaveBeenCalledWith({
+      essayId: 'essay-123',
+      criterionId: 'thesis',
+      resolution: 'corrected',
+      rawGradeId: 'raw-grade-1',
+    })
+  })
+
+  it('keeping the original calls resolveDispute with kept_original and no rawGradeId', async () => {
+    mockedDisputeTurn.mockResolvedValue({
+      message: "Fair enough, but I'd still put this at 2/4.",
+      proposal: { ...GRADED_ESSAY.criteria[0], score: 2 },
+      proposalRawGradeId: 'raw-grade-1',
+    })
+    mockedResolveDispute.mockResolvedValue({ acceptedGradeId: 'accepted-2', score: 3, missing: false })
+    const user = userEvent.setup()
+    renderGradedView()
+
+    await user.click(screen.getAllByRole('button', { name: /disagree with this score/i })[0])
+    await user.type(screen.getByPlaceholderText(/what feels off about this score/i), 'Never mind.')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    await screen.findByText('Finalize your score', {}, { timeout: 2000 })
+
+    await user.click(screen.getByRole('button', { name: 'Keep original' }))
+
+    expect(mockedResolveDispute).toHaveBeenCalledWith({
+      essayId: 'essay-123',
+      criterionId: 'thesis',
+      resolution: 'kept_original',
+      rawGradeId: undefined,
+    })
+    expect(await screen.findByText('Resolved — original score kept.')).toBeInTheDocument()
+  })
+
+  it('shows a fallback message and keeps the thread open when the dispute request fails', async () => {
+    mockedDisputeTurn.mockRejectedValue(new Error('network down'))
+    const user = userEvent.setup()
+    renderGradedView()
+
+    await user.click(screen.getAllByRole('button', { name: /disagree with this score/i })[0])
+    await user.type(screen.getByPlaceholderText(/what feels off about this score/i), 'Too generous.')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    expect(
+      await screen.findByText('Something went wrong reaching the grading service. Try again.'),
+    ).toBeInTheDocument()
   })
 
   it('hard-blocks Finish grading while a dispute is open and unresolved', async () => {

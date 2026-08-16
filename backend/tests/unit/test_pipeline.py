@@ -41,6 +41,9 @@ class _FlakyThenQueueClient(GradingModelClient):
             raise GradingModelError("simulated transient failure")
         return self._responses.pop(0)
 
+    async def generate_chat_turn(self, **kwargs):
+        raise NotImplementedError("not used by the grading pipeline")
+
 
 @pytest.mark.asyncio
 async def test_happy_path_returns_a_grade_response_covering_all_fourteen_criteria():
@@ -128,6 +131,9 @@ async def test_on_step_complete_reflects_only_steps_that_succeeded_before_abort(
             if self._responses:
                 return self._responses.pop(0)
             raise GradingModelError("body_1 permanently broken")
+
+        async def generate_chat_turn(self, **kwargs):
+            raise NotImplementedError("not used by the grading pipeline")
 
     client = _FailFromThirdCall()
     events: list[PipelineStepEvent] = []

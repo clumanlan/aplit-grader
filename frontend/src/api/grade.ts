@@ -45,6 +45,7 @@ interface RawSentence {
 }
 
 interface RawGradeResponse {
+  essay_id: string
   criteria: RawCriterionResult[]
   sentences: RawSentence[]
   section_of: Record<string, SectionId>
@@ -67,6 +68,7 @@ function transformGradeResponse(raw: RawGradeResponse): GradedEssay {
   }))
 
   return {
+    essayId: raw.essay_id,
     sentences,
     sectionOf: raw.section_of,
     citingCriteria: raw.citing_criteria,

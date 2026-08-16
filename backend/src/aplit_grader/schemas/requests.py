@@ -7,6 +7,7 @@ from aplit_grader.services.rubric import RUBRIC
 class GradeRequest(BaseModel):
     essay_text: str = Field(min_length=1)
     assignment_prompt: str = Field(min_length=1)
+    class_id: str = Field(min_length=1)
     student_name: str | None = None
 
 

@@ -9,7 +9,7 @@ from aplit_grader.main import app
 from aplit_grader.schemas.requests import GradeResponse
 from aplit_grader.services.pipeline import PipelineStepEvent
 from aplit_grader.services.rubric import RUBRIC
-from aplit_grader.storage.result_logger import ResultLogger
+from aplit_grader.storage.result_logger import ResultLogger, RunContext
 from tests.fixtures.canned_pipeline_responses import happy_path_responses
 from tests.fixtures.fake_grading_client import FakeGradingModelClient
 from tests.fixtures.sample_essays import (
@@ -17,17 +17,22 @@ from tests.fixtures.sample_essays import (
     GATSBY_FOUR_SENTENCE_ESSAY,
 )
 
+GATSBY_CLASS_ID = "Period 3 — AP Lit"
+
 
 class _RecordingResultLogger(ResultLogger):
     def __init__(self):
-        self.step_calls: list[tuple[str, PipelineStepEvent]] = []
-        self.final_result_calls: list[tuple[str, str, GradeResponse]] = []
+        self.step_calls: list[tuple[RunContext, PipelineStepEvent]] = []
+        self.final_result_calls: list[tuple[RunContext, str, GradeResponse]] = []
 
-    async def log_step(self, run_id: str, event: PipelineStepEvent) -> None:
-        self.step_calls.append((run_id, event))
+    async def log_step(self, context: RunContext, event: PipelineStepEvent) -> None:
+        self.step_calls.append((context, event))
 
-    async def log_final_result(self, run_id: str, essay_text: str, result: GradeResponse) -> None:
-        self.final_result_calls.append((run_id, essay_text, result))
+    async def log_final_result(
+        self, context: RunContext, essay_text: str, result: GradeResponse
+    ) -> str:
+        self.final_result_calls.append((context, essay_text, result))
+        return f"local-test/{context.run_id}/final_result.json"
 
 
 @pytest.fixture
@@ -68,6 +73,7 @@ def test_grade_endpoint_returns_all_fourteen_criteria_on_happy_path(test_client,
         json={
             "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
             "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
             "student_name": "Jane Doe",
         },
     )
@@ -85,7 +91,11 @@ def test_grade_endpoint_logs_each_step_and_the_final_result(
 
     client.post(
         "/grade",
-        json={"essay_text": GATSBY_FOUR_SENTENCE_ESSAY, "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT},
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
+        },
     )
 
     sources_logged = [event.source for _, event in recording_logger.step_calls]
@@ -101,7 +111,11 @@ def test_grade_endpoint_returns_502_with_failed_step_when_the_pipeline_aborts(
 
     response = client.post(
         "/grade",
-        json={"essay_text": GATSBY_FOUR_SENTENCE_ESSAY, "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT},
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
+        },
     )
 
     assert response.status_code == 502
@@ -113,7 +127,12 @@ def test_grade_endpoint_rejects_empty_essay_text(test_client, client_factory):
     client = test_client(fake_client)
 
     response = client.post(
-        "/grade", json={"essay_text": "", "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT}
+        "/grade",
+        json={
+            "essay_text": "",
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
+        },
     )
 
     assert response.status_code == 422
@@ -125,7 +144,11 @@ def test_grade_endpoint_forwards_assignment_prompt_to_the_pipeline(test_client, 
 
     client.post(
         "/grade",
-        json={"essay_text": GATSBY_FOUR_SENTENCE_ESSAY, "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT},
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
+        },
     )
 
     thesis_call = next(c for c in fake_client.calls if c["tool_name"] == "submit_thesis_grade")
@@ -137,10 +160,51 @@ def test_grade_endpoint_rejects_empty_assignment_prompt(test_client, client_fact
     client = test_client(fake_client)
 
     response = client.post(
-        "/grade", json={"essay_text": GATSBY_FOUR_SENTENCE_ESSAY, "assignment_prompt": ""}
+        "/grade",
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": "",
+            "class_id": GATSBY_CLASS_ID,
+        },
     )
 
     assert response.status_code == 422
+
+
+def test_grade_endpoint_rejects_empty_class_id(test_client, client_factory):
+    fake_client = client_factory(happy_path_responses())
+    client = test_client(fake_client)
+
+    response = client.post(
+        "/grade",
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": "",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_grade_endpoint_logs_the_authenticated_teacher_and_slugified_class(
+    test_client, client_factory, recording_logger
+):
+    fake_client = client_factory(happy_path_responses())
+    client = test_client(fake_client)
+
+    client.post(
+        "/grade",
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
+        },
+    )
+
+    context, _ = recording_logger.step_calls[0]
+    assert context.teacher_id == "test-teacher-sub"
+    assert context.class_slug == "period-3-ap-lit"
 
 
 def test_grade_endpoint_rejects_requests_without_a_bearer_token(recording_logger, client_factory):
@@ -154,7 +218,11 @@ def test_grade_endpoint_rejects_requests_without_a_bearer_token(recording_logger
 
     response = client.post(
         "/grade",
-        json={"essay_text": GATSBY_FOUR_SENTENCE_ESSAY, "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT},
+        json={
+            "essay_text": GATSBY_FOUR_SENTENCE_ESSAY,
+            "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT,
+            "class_id": GATSBY_CLASS_ID,
+        },
     )
 
     assert response.status_code == 401

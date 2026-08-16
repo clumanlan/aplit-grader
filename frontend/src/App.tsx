@@ -65,6 +65,7 @@ function App() {
     gradeEssay({
       essayText: values.essayText,
       assignmentPrompt: session.prompt,
+      classId: session.classId,
       studentName: values.studentName,
     })
       .then((result) => {
@@ -175,7 +176,7 @@ function App() {
                   </div>
                 </div>
                 {view === 'error' ? (
-                  <ErrorScreen onRetry={startGrading} />
+                  <ErrorScreen onRetry={() => startGrading()} />
                 ) : (
                   <>
                     <LoadingScreen />

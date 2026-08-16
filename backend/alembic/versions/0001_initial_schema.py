@@ -38,6 +38,7 @@ _CREATE_STATEMENTS = [
         student_name        TEXT,
         essay_text          TEXT NOT NULL,
         segmentation_notes  TEXT,
+        s3_key              TEXT,
         created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
     )
     """,

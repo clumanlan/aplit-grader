@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearAuth, getAccessToken, setAuthenticated } from '../auth/authStore'
 import { gradeEssay, GradeRequestError } from './grade'
 
-const PAYLOAD = { essayText: 'Once upon a time.', assignmentPrompt: 'Analyze the symbol.' }
+const PAYLOAD = {
+  essayText: 'Once upon a time.',
+  assignmentPrompt: 'Analyze the symbol.',
+  classId: 'Period 3 — AP Lit',
+}
 
 describe('gradeEssay', () => {
   beforeEach(() => {

@@ -20,6 +20,11 @@ CREATE TABLE essays (
                                                  -- judgment call (e.g. 3 body paragraphs found,
                                                  -- merged into 2) — best-effort, never blocks, but
                                                  -- always transparent when it wasn't clean-cut
+    s3_key              TEXT,                   -- grading-runs/... prefix for this run's raw
+                                                 -- model output (storage/result_logger.py);
+                                                 -- nullable — Phase 0 doesn't write this table at
+                                                 -- all yet, so this can't be populated until a
+                                                 -- Phase 1 DB-write path exists
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

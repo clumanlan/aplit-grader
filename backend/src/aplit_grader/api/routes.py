@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -14,7 +15,9 @@ from aplit_grader.services.pipeline import (
 from aplit_grader.storage.result_logger import (
     LocalResultLogger,
     ResultLogger,
+    RunContext,
     S3ResultLogger,
+    slugify_class_name,
 )
 
 router = APIRouter()
@@ -39,10 +42,15 @@ async def grade_essay(
     client: GradingModelClient = Depends(get_grading_client),
     logger: ResultLogger = Depends(get_result_logger),
 ) -> GradeResponse:
-    run_id = str(uuid.uuid4())
+    run_context = RunContext(
+        run_id=str(uuid.uuid4()),
+        teacher_id=teacher.sub,
+        class_slug=slugify_class_name(request.class_id),
+        started_at=datetime.now(UTC),
+    )
 
     async def on_step_complete(event: PipelineStepEvent) -> None:
-        await logger.log_step(run_id, event)
+        await logger.log_step(run_context, event)
 
     try:
         result = await run_grading_pipeline(
@@ -58,5 +66,5 @@ async def grade_essay(
             },
         ) from exc
 
-    await logger.log_final_result(run_id, request.essay_text, result)
+    await logger.log_final_result(run_context, request.essay_text, result)
     return result

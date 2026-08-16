@@ -11,6 +11,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?
 export interface GradeRequestPayload {
   essayText: string
   assignmentPrompt: string
+  classId: string
   studentName?: string
 }
 
@@ -90,6 +91,7 @@ export async function gradeEssay(payload: GradeRequestPayload): Promise<GradedEs
       body: JSON.stringify({
         essay_text: payload.essayText,
         assignment_prompt: payload.assignmentPrompt,
+        class_id: payload.classId,
         student_name: payload.studentName,
       }),
     })

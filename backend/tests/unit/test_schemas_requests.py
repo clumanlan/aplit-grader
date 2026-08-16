@@ -25,17 +25,21 @@ def test_grade_request_accepts_essay_text_prompt_and_optional_student_name():
     request = GradeRequest(
         essay_text="Once upon a time...",
         assignment_prompt="Analyze how the author develops a theme.",
+        class_id="Period 3 — AP Lit",
         student_name="Jane Doe",
     )
 
     assert request.essay_text == "Once upon a time..."
     assert request.assignment_prompt == "Analyze how the author develops a theme."
+    assert request.class_id == "Period 3 — AP Lit"
     assert request.student_name == "Jane Doe"
 
 
 def test_grade_request_allows_omitted_student_name():
     request = GradeRequest(
-        essay_text="Once upon a time...", assignment_prompt="Analyze how the author develops a theme."
+        essay_text="Once upon a time...",
+        assignment_prompt="Analyze how the author develops a theme.",
+        class_id="Period 3 — AP Lit",
     )
 
     assert request.student_name is None
@@ -43,12 +47,27 @@ def test_grade_request_allows_omitted_student_name():
 
 def test_grade_request_rejects_empty_essay_text():
     with pytest.raises(ValidationError):
-        GradeRequest(essay_text="", assignment_prompt="Analyze how the author develops a theme.")
+        GradeRequest(
+            essay_text="",
+            assignment_prompt="Analyze how the author develops a theme.",
+            class_id="Period 3 — AP Lit",
+        )
 
 
 def test_grade_request_rejects_empty_assignment_prompt():
     with pytest.raises(ValidationError):
-        GradeRequest(essay_text="Once upon a time...", assignment_prompt="")
+        GradeRequest(
+            essay_text="Once upon a time...", assignment_prompt="", class_id="Period 3 — AP Lit"
+        )
+
+
+def test_grade_request_rejects_empty_class_id():
+    with pytest.raises(ValidationError):
+        GradeRequest(
+            essay_text="Once upon a time...",
+            assignment_prompt="Analyze how the author develops a theme.",
+            class_id="",
+        )
 
 
 def test_grade_response_accepts_all_fourteen_criteria_and_sentences():

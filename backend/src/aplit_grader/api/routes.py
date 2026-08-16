@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from aplit_grader.api.auth import TeacherIdentity, get_current_teacher
 from aplit_grader.config import Settings, get_settings
 from aplit_grader.schemas.requests import GradeRequest, GradeResponse
 from aplit_grader.services.inference import AnthropicGradingClient, GradingModelClient
@@ -34,6 +35,7 @@ def get_result_logger(settings: Settings = Depends(get_settings)) -> ResultLogge
 @router.post("/grade", response_model=GradeResponse)
 async def grade_essay(
     request: GradeRequest,
+    teacher: TeacherIdentity = Depends(get_current_teacher),
     client: GradingModelClient = Depends(get_grading_client),
     logger: ResultLogger = Depends(get_result_logger),
 ) -> GradeResponse:

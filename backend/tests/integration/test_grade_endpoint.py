@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from aplit_grader.api.auth import TeacherIdentity, get_current_teacher
 from aplit_grader.api.routes import get_grading_client, get_result_logger
 from aplit_grader.main import app
 from aplit_grader.schemas.requests import GradeResponse
@@ -49,6 +50,9 @@ def test_client(recording_logger):
     def _make(fake_grading_client):
         app.dependency_overrides[get_grading_client] = lambda: fake_grading_client
         app.dependency_overrides[get_result_logger] = lambda: recording_logger
+        app.dependency_overrides[get_current_teacher] = lambda: TeacherIdentity(
+            sub="test-teacher-sub", username="teacher@example.com"
+        )
         return TestClient(app)
 
     yield _make
@@ -137,3 +141,21 @@ def test_grade_endpoint_rejects_empty_assignment_prompt(test_client, client_fact
     )
 
     assert response.status_code == 422
+
+
+def test_grade_endpoint_rejects_requests_without_a_bearer_token(recording_logger, client_factory):
+    # Deliberately does not use the `test_client` fixture — that fixture overrides
+    # get_current_teacher, which is exactly the dependency this test checks is
+    # actually enforced when nothing overrides it.
+    fake_client = client_factory(happy_path_responses())
+    app.dependency_overrides[get_grading_client] = lambda: fake_client
+    app.dependency_overrides[get_result_logger] = lambda: recording_logger
+    client = TestClient(app)
+
+    response = client.post(
+        "/grade",
+        json={"essay_text": GATSBY_FOUR_SENTENCE_ESSAY, "assignment_prompt": GATSBY_ASSIGNMENT_PROMPT},
+    )
+
+    assert response.status_code == 401
+    app.dependency_overrides.clear()

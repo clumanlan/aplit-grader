@@ -1,3 +1,4 @@
+import { clearAuth, getAccessToken } from '../auth/authStore'
 import type { CriterionResult, EssaySentence, GradedEssay, SectionId } from '../types/essayLinking'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
@@ -68,11 +69,19 @@ function transformGradeResponse(raw: RawGradeResponse): GradedEssay {
 }
 
 export async function gradeEssay(payload: GradeRequestPayload): Promise<GradedEssay> {
+  const accessToken = getAccessToken()
+  if (!accessToken) {
+    throw new GradeRequestError('Not signed in.')
+  }
+
   let response: Response
   try {
     response = await fetch(`${API_BASE_URL}/grade`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
       body: JSON.stringify({
         essay_text: payload.essayText,
         assignment_prompt: payload.assignmentPrompt,
@@ -81,6 +90,11 @@ export async function gradeEssay(payload: GradeRequestPayload): Promise<GradedEs
     })
   } catch (err) {
     throw new GradeRequestError('Could not reach the grading service.', err)
+  }
+
+  if (response.status === 401) {
+    clearAuth()
+    throw new GradeRequestError('Your session expired. Please sign in again.')
   }
 
   if (!response.ok) {

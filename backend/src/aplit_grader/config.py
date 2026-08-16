@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     result_logger_local_dir: str = "./grading_results"
     s3_bucket: str | None = None
 
+    # Not secrets — a Cognito user pool ID and app client ID are public identifiers
+    # (the client here has no client secret, since it's called directly from the
+    # frontend). Overridable via env for other environments/pools.
+    cognito_region: str = "us-east-2"
+    cognito_user_pool_id: str = "us-east-2_hZY5RNs81"
+    cognito_app_client_id: str = "4tpkjhn2v74cjr9rbmca3kjih8"
+
 
 @lru_cache
 def get_settings() -> Settings:

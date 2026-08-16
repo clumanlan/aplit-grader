@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { setAuthenticated } from './auth/authStore'
+import { useAuth } from './auth/useAuth'
+import { LoginScreen } from './components/LoginScreen'
 import { SetupScreen, type SetupValues } from './components/SetupScreen'
 import { SessionBar, type Session } from './components/SessionBar'
 import { PasteScreen, type PasteValues } from './components/PasteScreen'
@@ -48,6 +51,7 @@ function sectionsLabel(values: SetupValues): string {
 type EssayView = 'paste' | 'loading' | 'error' | 'graded'
 
 function App() {
+  const { accessToken } = useAuth()
   const [session, setSession] = useState<Session | null>(null)
   const [setupValues, setSetupValues] = useState<SetupValues | null>(null)
   const [isAdjusting, setIsAdjusting] = useState(false)
@@ -126,7 +130,10 @@ function App() {
         </div>
       </div>
       <div className={isGraded ? 'mx-auto max-w-6xl px-6 py-10' : 'mx-auto max-w-3xl px-6 py-10'}>
-        {(!session || isAdjusting) && (
+        {!accessToken && (
+          <LoginScreen onSignedIn={(token, name) => setAuthenticated(token, name)} />
+        )}
+        {accessToken && (!session || isAdjusting) && (
           <SetupScreen
             criteria={SETUP_CRITERIA}
             classes={CLASSES}
@@ -135,7 +142,7 @@ function App() {
             onCancel={isAdjusting ? handleCancelAdjust : undefined}
           />
         )}
-        {session && !isAdjusting && (
+        {accessToken && session && !isAdjusting && (
           <>
             <SessionBar
               session={session}

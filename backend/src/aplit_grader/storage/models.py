@@ -59,6 +59,11 @@ class RawGrade(Base):
     confidence_level: Mapped[str | None] = mapped_column(nullable=True)
     confidence_reason: Mapped[str | None] = mapped_column(nullable=True)
     source: Mapped[str] = mapped_column(nullable=False)
+    # The grading run that produced this row — matches the S3 key's {run_id} segment
+    # (storage/result_logger.py). Nullable: existing rows predate this column, and a
+    # dispute-proposal row's run_id is looked up from an existing sibling row rather
+    # than being independently generated (a dispute thread has no run of its own).
+    run_id: Mapped[str | None] = mapped_column(nullable=True)
     model_version: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 

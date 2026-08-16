@@ -28,6 +28,8 @@ from aplit_grader.services.pipeline import (
 from aplit_grader.storage.db import (
     Database,
     DisputeNotFoundError,
+    EssayAccessDeniedError,
+    EssayNotFoundError,
     RawGradeMismatchError,
 )
 from aplit_grader.storage.result_logger import (
@@ -97,6 +99,7 @@ async def grade_essay(
     s3_key = await logger.log_final_result(run_context, request.essay_text, result)
 
     essay_id = await database.persist_grading_run(
+        run_id=run_context.run_id,
         teacher_id=teacher.sub,
         class_id=request.class_id,
         assignment_prompt=request.assignment_prompt,
@@ -133,16 +136,26 @@ async def dispute_turn(
             detail={"error": "dispute_turn_failed", "message": str(exc)},
         ) from exc
 
-    proposal_raw_grade_id = await database.persist_dispute_turn(
-        essay_id=request.essay_id,
-        teacher_id=teacher.sub,
-        class_id=request.class_id,
-        criterion_id=request.original.criterion_id,
-        teacher_message=request.messages[-1].content,
-        assistant_message=result.message,
-        proposal=result.proposal,
-        model_version=client.model_version,
-    )
+    try:
+        proposal_raw_grade_id = await database.persist_dispute_turn(
+            essay_id=request.essay_id,
+            caller_teacher_id=teacher.sub,
+            criterion_id=request.original.criterion_id,
+            teacher_message=request.messages[-1].content,
+            assistant_message=result.message,
+            proposal=result.proposal,
+            model_version=client.model_version,
+        )
+    except EssayNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "essay_not_found", "message": str(exc)},
+        ) from exc
+    except EssayAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "essay_access_denied", "message": str(exc)},
+        ) from exc
 
     return DisputeTurnResponse(
         message=result.message, proposal=result.proposal, proposal_raw_grade_id=proposal_raw_grade_id

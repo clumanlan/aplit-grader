@@ -1,8 +1,11 @@
 -- AP Lit Essay Grader — schema as of 2026-08-16 dispute-persistence session.
 -- Seven tables. See README.md "Data model" and "Decisions log" (2026-08-11, 2026-08-12,
 -- 2026-08-16 entries) for full rationale. Phase 0's grading pipeline (POST /grade) was
--- DB-free through 2026-08-15 (S3-logged eval runs only) — this is the first migration
--- actually applied against a real (local, docker-compose) Postgres instance.
+-- DB-free through 2026-08-15 (S3-logged eval runs only) — 0001 was the first migration
+-- actually applied against a real (local, docker-compose) Postgres instance, same day.
+-- From 0002 onward, schema changes land as new versioned Alembic migrations
+-- (backend/alembic/versions/) rather than edits to 0001 or hand-applied SQL — this file
+-- mirrors whatever migration 0001+0002+... currently produce, it is not itself run.
 
 CREATE TABLE sessions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -68,6 +71,11 @@ CREATE TABLE raw_grades (
     confidence_level    TEXT,            -- 'high' | 'medium' | 'low' — thesis rows only, else null
     confidence_reason   TEXT,            -- e.g. 'explicit thesis stated' / 'inferred, not stated anywhere'
     source              TEXT NOT NULL,   -- 'thesis' | 'body_1' | 'body_2' | 'conclusion' | 'dispute-proposal'
+    run_id              TEXT,            -- matches the S3 key's {run_id} segment (storage/result_logger.py).
+                                          -- Added 2026-08-16 (migration 0002) — nullable since existing rows
+                                          -- predate it. A dispute-proposal row's run_id is looked up from an
+                                          -- existing sibling row for the same essay, not independently
+                                          -- generated — a dispute thread has no run of its own.
     model_version       TEXT NOT NULL,   -- e.g. 'claude-sonnet-5-zeroshot', later a fine-tuned adapter version
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );

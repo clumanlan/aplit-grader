@@ -4,7 +4,14 @@ import pytest
 from sqlalchemy import select
 
 from aplit_grader.schemas.rubric import CriterionResult
-from aplit_grader.storage.db import DisputeNotFoundError, RawGradeMismatchError
+from aplit_grader.services.rubric import RUBRIC
+from aplit_grader.storage.db import (
+    Database,
+    DisputeNotFoundError,
+    EssayAccessDeniedError,
+    EssayNotFoundError,
+    RawGradeMismatchError,
+)
 from aplit_grader.storage.models import (
     AcceptedGrade,
     Dispute,
@@ -15,6 +22,10 @@ from aplit_grader.storage.models import (
 )
 
 pytestmark = pytest.mark.db
+
+TEACHER_ID = "teacher-1"
+CLASS_ID = "Period 3 — AP Lit"
+RUN_ID = "run-1"
 
 
 def _criterion(criterion_id="bp1-evidence-1", score=2, missing=False, sentence_refs=None) -> CriterionResult:
@@ -30,36 +41,49 @@ def _criterion(criterion_id="bp1-evidence-1", score=2, missing=False, sentence_r
 
 
 def _all_fourteen_criteria() -> list[CriterionResult]:
-    from aplit_grader.services.rubric import RUBRIC
-
     return [_criterion(criterion_id=cid, score=3) for cid in RUBRIC]
 
 
-@pytest.mark.asyncio
-async def test_persist_grading_run_creates_a_session_essay_and_raw_grades(database):
-    essay_id = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name="Jane Doe",
-        essay_text="Once upon a time...",
+async def _persist_essay(
+    database: Database,
+    *,
+    teacher_id: str = TEACHER_ID,
+    class_id: str = CLASS_ID,
+    run_id: str = RUN_ID,
+    assignment_prompt: str = "Analyze the symbol.",
+    essay_text: str = "essay text",
+    student_name: str | None = None,
+) -> uuid.UUID:
+    return await database.persist_grading_run(
+        run_id=run_id,
+        teacher_id=teacher_id,
+        class_id=class_id,
+        assignment_prompt=assignment_prompt,
+        student_name=student_name,
+        essay_text=essay_text,
         segmentation_notes=None,
-        s3_key="grading-runs/teacher-1/period-3-ap-lit/2026/08/16/run-1/final_result.json",
+        s3_key=None,
         criteria=_all_fourteen_criteria(),
         model_version="claude-sonnet-5",
     )
 
+
+@pytest.mark.asyncio
+async def test_persist_grading_run_creates_a_session_essay_and_raw_grades(database):
+    essay_id = await _persist_essay(database, student_name="Jane Doe")
+
     with database._session() as db:
         essay = db.get(Essay, essay_id)
         assert essay.student_name == "Jane Doe"
-        assert essay.teacher_id == "teacher-1"
+        assert essay.teacher_id == TEACHER_ID
 
         session_row = db.get(GradingSession, essay.session_id)
-        assert session_row.class_id == "Period 3 — AP Lit"
+        assert session_row.class_id == CLASS_ID
         assert session_row.criteria_selection == {"full_essay": True}
 
         raw_grades = db.execute(select(RawGrade).where(RawGrade.essay_id == essay_id)).scalars().all()
         assert len(raw_grades) == 14
+        assert all(r.run_id == RUN_ID for r in raw_grades)
         thesis_row = next(r for r in raw_grades if r.criterion_id == "thesis")
         assert thesis_row.source == "thesis"
         bp1_claim_row = next(r for r in raw_grades if r.criterion_id == "bp1-claim")
@@ -70,19 +94,8 @@ async def test_persist_grading_run_creates_a_session_essay_and_raw_grades(databa
 
 @pytest.mark.asyncio
 async def test_persist_grading_run_reuses_the_session_for_the_same_teacher_class_and_prompt(database):
-    kwargs = {
-        "teacher_id": "teacher-1",
-        "class_id": "Period 3 — AP Lit",
-        "assignment_prompt": "Analyze the symbol.",
-        "student_name": None,
-        "essay_text": "essay one",
-        "segmentation_notes": None,
-        "s3_key": None,
-        "criteria": _all_fourteen_criteria(),
-        "model_version": "claude-sonnet-5",
-    }
-    essay_id_1 = await database.persist_grading_run(**kwargs)
-    essay_id_2 = await database.persist_grading_run(**{**kwargs, "essay_text": "essay two"})
+    essay_id_1 = await _persist_essay(database, essay_text="essay one")
+    essay_id_2 = await _persist_essay(database, essay_text="essay two")
 
     with database._session() as db:
         session_id_1 = db.get(Essay, essay_id_1).session_id
@@ -92,22 +105,11 @@ async def test_persist_grading_run_reuses_the_session_for_the_same_teacher_class
 
 @pytest.mark.asyncio
 async def test_persist_dispute_turn_creates_a_dispute_and_two_messages_with_no_proposal(database):
-    essay_id = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name=None,
-        essay_text="essay text",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
+    essay_id = await _persist_essay(database)
 
     await database.persist_dispute_turn(
         essay_id=essay_id,
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
+        caller_teacher_id=TEACHER_ID,
         criterion_id="bp1-evidence-1",
         teacher_message="I think this deserves a 3.",
         assistant_message="I'd stand by the 2 — the quote lacks context.",
@@ -119,6 +121,9 @@ async def test_persist_dispute_turn_creates_a_dispute_and_two_messages_with_no_p
         dispute = db.execute(select(Dispute).where(Dispute.essay_id == essay_id)).scalar_one()
         assert dispute.status == "open"
         assert dispute.criterion_id == "bp1-evidence-1"
+        # Pulled from the essay/session, not trusted from the request.
+        assert dispute.teacher_id == TEACHER_ID
+        assert dispute.class_id == CLASS_ID
 
         messages = (
             db.execute(select(DisputeMessageRow).where(DisputeMessageRow.dispute_id == dispute.id))
@@ -131,23 +136,42 @@ async def test_persist_dispute_turn_creates_a_dispute_and_two_messages_with_no_p
 
 
 @pytest.mark.asyncio
-async def test_persist_dispute_turn_writes_a_raw_grades_row_for_a_proposal(database):
-    essay_id = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name=None,
-        essay_text="essay text",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
+async def test_persist_dispute_turn_raises_when_the_essay_doesnt_exist(database):
+    with pytest.raises(EssayNotFoundError):
+        await database.persist_dispute_turn(
+            essay_id=uuid.uuid4(),
+            caller_teacher_id=TEACHER_ID,
+            criterion_id="bp1-evidence-1",
+            teacher_message="hi",
+            assistant_message="hi back",
+            proposal=None,
+            model_version="claude-sonnet-5",
+        )
+
+
+@pytest.mark.asyncio
+async def test_persist_dispute_turn_raises_when_the_caller_doesnt_own_the_essay(database):
+    essay_id = await _persist_essay(database, teacher_id=TEACHER_ID)
+
+    with pytest.raises(EssayAccessDeniedError):
+        await database.persist_dispute_turn(
+            essay_id=essay_id,
+            caller_teacher_id="a-different-teacher",
+            criterion_id="bp1-evidence-1",
+            teacher_message="hi",
+            assistant_message="hi back",
+            proposal=None,
+            model_version="claude-sonnet-5",
+        )
+
+
+@pytest.mark.asyncio
+async def test_persist_dispute_turn_writes_a_raw_grades_row_for_a_proposal_inheriting_run_id(database):
+    essay_id = await _persist_essay(database)
 
     await database.persist_dispute_turn(
         essay_id=essay_id,
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
+        caller_teacher_id=TEACHER_ID,
         criterion_id="bp1-evidence-1",
         teacher_message="Sentence 2 gives the context though.",
         assistant_message="Fair point — I'd revise this to a 3.",
@@ -161,6 +185,8 @@ async def test_persist_dispute_turn_writes_a_raw_grades_row_for_a_proposal(datab
         ).scalar_one()
         assert proposal_row.score == 3
         assert proposal_row.sentence_refs == [1, 2]
+        # Inherited from the essay's original grading run, not independently generated.
+        assert proposal_row.run_id == RUN_ID
 
         claude_message = db.execute(
             select(DisputeMessageRow).where(DisputeMessageRow.role == "claude")
@@ -171,21 +197,10 @@ async def test_persist_dispute_turn_writes_a_raw_grades_row_for_a_proposal(datab
 
 @pytest.mark.asyncio
 async def test_persist_dispute_turn_reuses_the_same_open_dispute_across_turns(database):
-    essay_id = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name=None,
-        essay_text="essay text",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
+    essay_id = await _persist_essay(database)
     turn_kwargs = {
         "essay_id": essay_id,
-        "teacher_id": "teacher-1",
-        "class_id": "Period 3 — AP Lit",
+        "caller_teacher_id": TEACHER_ID,
         "criterion_id": "bp1-evidence-1",
         "model_version": "claude-sonnet-5",
     }
@@ -210,21 +225,10 @@ async def test_persist_dispute_turn_reuses_the_same_open_dispute_across_turns(da
 
 @pytest.mark.asyncio
 async def test_resolve_dispute_writes_accepted_grade_and_closes_the_dispute(database):
-    essay_id = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name=None,
-        essay_text="essay text",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
+    essay_id = await _persist_essay(database)
     await database.persist_dispute_turn(
         essay_id=essay_id,
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
+        caller_teacher_id=TEACHER_ID,
         criterion_id="bp1-evidence-1",
         teacher_message="Sentence 2 gives the context though.",
         assistant_message="Fair point — I'd revise this to a 3.",
@@ -272,21 +276,10 @@ async def test_resolve_dispute_raises_when_there_is_no_open_dispute(database):
 
 @pytest.mark.asyncio
 async def test_resolve_dispute_kept_original_points_at_the_original_grade(database):
-    essay_id = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name=None,
-        essay_text="essay text",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
+    essay_id = await _persist_essay(database)
     await database.persist_dispute_turn(
         essay_id=essay_id,
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
+        caller_teacher_id=TEACHER_ID,
         criterion_id="bp1-evidence-1",
         teacher_message="I think this deserves a 4.",
         assistant_message="I'd stand by the original score.",
@@ -315,32 +308,11 @@ async def test_resolve_dispute_kept_original_points_at_the_original_grade(databa
 
 @pytest.mark.asyncio
 async def test_resolve_dispute_rejects_a_raw_grade_id_from_a_different_essay(database):
-    essay_id_1 = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name=None,
-        essay_text="essay one",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
-    essay_id_2 = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="A different prompt.",
-        student_name=None,
-        essay_text="essay two",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
+    essay_id_1 = await _persist_essay(database, essay_text="essay one")
+    essay_id_2 = await _persist_essay(database, assignment_prompt="A different prompt.", essay_text="essay two")
     await database.persist_dispute_turn(
         essay_id=essay_id_1,
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
+        caller_teacher_id=TEACHER_ID,
         criterion_id="bp1-evidence-1",
         teacher_message="msg",
         assistant_message="reply",
@@ -367,22 +339,11 @@ async def test_resolve_dispute_rejects_a_raw_grade_id_from_a_different_essay(dat
 
 @pytest.mark.asyncio
 async def test_a_missing_proposal_still_gets_a_raw_grade_row_despite_a_null_score(database):
-    essay_id = await database.persist_grading_run(
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
-        assignment_prompt="Analyze the symbol.",
-        student_name=None,
-        essay_text="essay text",
-        segmentation_notes=None,
-        s3_key=None,
-        criteria=_all_fourteen_criteria(),
-        model_version="claude-sonnet-5",
-    )
+    essay_id = await _persist_essay(database)
 
     await database.persist_dispute_turn(
         essay_id=essay_id,
-        teacher_id="teacher-1",
-        class_id="Period 3 — AP Lit",
+        caller_teacher_id=TEACHER_ID,
         criterion_id="bp1-evidence-1",
         teacher_message="Actually there's nothing here at all.",
         assistant_message="You're right — nothing in the essay addresses this.",

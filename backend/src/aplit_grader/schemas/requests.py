@@ -71,8 +71,11 @@ class DisputeMessage(BaseModel):
 
 
 class DisputeTurnRequest(BaseModel):
+    # teacher_id/class_id are deliberately NOT request fields — the server derives
+    # both from essay_id (via the essay/session it belongs to) rather than trusting
+    # client-supplied values, and rejects the request if the authenticated caller
+    # doesn't own that essay. See storage/db.py's persist_dispute_turn.
     essay_id: uuid.UUID
-    class_id: str = Field(min_length=1)
     essay_text: str = Field(min_length=1)
     assignment_prompt: str = Field(min_length=1)
     original: CriterionResult

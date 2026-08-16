@@ -131,7 +131,6 @@ export function GradedView({
     const item = byId(id)
     disputeTurn({
       essayId: gradedEssay.essayId,
-      classId,
       essayText,
       assignmentPrompt,
       original: item,

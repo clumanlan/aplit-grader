@@ -48,6 +48,14 @@ class RawGradeMismatchError(Exception):
     it's being resolved against."""
 
 
+class EssayNotFoundError(Exception):
+    """Raised when a dispute turn references an essay_id that doesn't exist."""
+
+
+class EssayAccessDeniedError(Exception):
+    """Raised when the authenticated caller doesn't own the essay a dispute references."""
+
+
 class Database:
     def __init__(self, database_url: str):
         self._engine = create_engine(database_url, pool_pre_ping=True)
@@ -94,6 +102,7 @@ class Database:
     def _persist_grading_run_sync(
         self,
         *,
+        run_id: str,
         teacher_id: str,
         class_id: str,
         assignment_prompt: str,
@@ -133,6 +142,7 @@ class Database:
                         confidence_level=criterion.confidence_level,
                         confidence_reason=criterion.confidence_reason,
                         source=_SOURCE_BY_CRITERION[criterion.criterion_id],
+                        run_id=run_id,
                         model_version=model_version,
                     )
                 )
@@ -142,6 +152,7 @@ class Database:
     async def persist_grading_run(
         self,
         *,
+        run_id: str,
         teacher_id: str,
         class_id: str,
         assignment_prompt: str,
@@ -154,6 +165,7 @@ class Database:
     ) -> uuid.UUID:
         return await asyncio.to_thread(
             self._persist_grading_run_sync,
+            run_id=run_id,
             teacher_id=teacher_id,
             class_id=class_id,
             assignment_prompt=assignment_prompt,
@@ -189,8 +201,7 @@ class Database:
         self,
         *,
         essay_id: uuid.UUID,
-        teacher_id: str,
-        class_id: str | None,
+        caller_teacher_id: str,
         criterion_id: str,
         teacher_message: str,
         assistant_message: str,
@@ -198,13 +209,33 @@ class Database:
         model_version: str,
     ) -> uuid.UUID | None:
         with self._session() as db:
+            essay = db.get(Essay, essay_id)
+            if essay is None:
+                raise EssayNotFoundError(f"No essay {essay_id}")
+            if essay.teacher_id != caller_teacher_id:
+                raise EssayAccessDeniedError(
+                    f"Essay {essay_id} does not belong to teacher {caller_teacher_id}"
+                )
+            session_row = db.get(GradingSession, essay.session_id)
+
             dispute = self._get_or_create_open_dispute(
-                db, essay_id=essay_id, teacher_id=teacher_id, class_id=class_id, criterion_id=criterion_id
+                db,
+                essay_id=essay_id,
+                teacher_id=essay.teacher_id,
+                class_id=session_row.class_id if session_row is not None else None,
+                criterion_id=criterion_id,
             )
             db.add(DisputeMessageRow(dispute_id=dispute.id, role="teacher", message_text=teacher_message))
 
             raw_grade_id: uuid.UUID | None = None
             if proposal is not None:
+                # The dispute thread has no run of its own — inherit the run_id from
+                # any existing raw_grades row for this essay (always present, since
+                # persist_grading_run wrote 14 of them before any dispute could exist).
+                existing_run_id = db.execute(
+                    select(RawGrade.run_id).where(RawGrade.essay_id == essay_id).limit(1)
+                ).scalar_one_or_none()
+
                 raw_grade = RawGrade(
                     essay_id=essay_id,
                     criterion_id=criterion_id,
@@ -215,6 +246,7 @@ class Database:
                     reasoning=proposal.reasoning,
                     sentence_refs=proposal.sentence_refs,
                     source="dispute-proposal",
+                    run_id=existing_run_id,
                     model_version=model_version,
                 )
                 db.add(raw_grade)
@@ -237,8 +269,7 @@ class Database:
         self,
         *,
         essay_id: uuid.UUID,
-        teacher_id: str,
-        class_id: str | None,
+        caller_teacher_id: str,
         criterion_id: str,
         teacher_message: str,
         assistant_message: str,
@@ -248,8 +279,7 @@ class Database:
         return await asyncio.to_thread(
             self._persist_dispute_turn_sync,
             essay_id=essay_id,
-            teacher_id=teacher_id,
-            class_id=class_id,
+            caller_teacher_id=caller_teacher_id,
             criterion_id=criterion_id,
             teacher_message=teacher_message,
             assistant_message=assistant_message,

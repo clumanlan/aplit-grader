@@ -5,8 +5,10 @@ import type { DisputeMessage } from '../components/DisputeThread'
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
 export interface DisputeTurnPayload {
+  // No classId — the server derives teacher_id/class_id from essay_id (the essay
+  // and its session), rather than trusting a client-supplied value, and rejects
+  // the call if the signed-in teacher doesn't own that essay.
   essayId: string
-  classId: string
   essayText: string
   assignmentPrompt: string
   original: CriterionResult
@@ -105,7 +107,6 @@ export async function disputeTurn(payload: DisputeTurnPayload): Promise<DisputeT
       },
       body: JSON.stringify({
         essay_id: payload.essayId,
-        class_id: payload.classId,
         essay_text: payload.essayText,
         assignment_prompt: payload.assignmentPrompt,
         original: {

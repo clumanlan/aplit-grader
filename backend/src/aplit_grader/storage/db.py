@@ -291,11 +291,20 @@ class Database:
         self,
         *,
         essay_id: uuid.UUID,
+        caller_teacher_id: str,
         criterion_id: str,
         resolution: DisputeResolution,
         raw_grade_id: uuid.UUID | None,
     ) -> tuple[uuid.UUID, int | None, bool]:
         with self._session() as db:
+            essay = db.get(Essay, essay_id)
+            if essay is None:
+                raise EssayNotFoundError(f"No essay {essay_id}")
+            if essay.teacher_id != caller_teacher_id:
+                raise EssayAccessDeniedError(
+                    f"Essay {essay_id} does not belong to teacher {caller_teacher_id}"
+                )
+
             dispute = db.execute(
                 select(Dispute).where(
                     Dispute.essay_id == essay_id,
@@ -358,6 +367,7 @@ class Database:
         self,
         *,
         essay_id: uuid.UUID,
+        caller_teacher_id: str,
         criterion_id: str,
         resolution: DisputeResolution,
         raw_grade_id: uuid.UUID | None = None,
@@ -365,6 +375,7 @@ class Database:
         return await asyncio.to_thread(
             self._resolve_dispute_sync,
             essay_id=essay_id,
+            caller_teacher_id=caller_teacher_id,
             criterion_id=criterion_id,
             resolution=resolution,
             raw_grade_id=raw_grade_id,

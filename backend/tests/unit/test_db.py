@@ -244,6 +244,7 @@ async def test_resolve_dispute_writes_accepted_grade_and_closes_the_dispute(data
 
     accepted_grade_id, resolved_score, resolved_missing = await database.resolve_dispute(
         essay_id=essay_id,
+        caller_teacher_id=TEACHER_ID,
         criterion_id="bp1-evidence-1",
         resolution="corrected",
         raw_grade_id=proposal_raw_grade_id,
@@ -266,9 +267,44 @@ async def test_resolve_dispute_writes_accepted_grade_and_closes_the_dispute(data
 
 @pytest.mark.asyncio
 async def test_resolve_dispute_raises_when_there_is_no_open_dispute(database):
+    essay_id = await _persist_essay(database)
     with pytest.raises(DisputeNotFoundError):
         await database.resolve_dispute(
+            essay_id=essay_id,
+            caller_teacher_id=TEACHER_ID,
+            criterion_id="bp1-evidence-1",
+            resolution="kept_original",
+        )
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_raises_when_the_essay_doesnt_exist(database):
+    with pytest.raises(EssayNotFoundError):
+        await database.resolve_dispute(
             essay_id=uuid.uuid4(),
+            caller_teacher_id=TEACHER_ID,
+            criterion_id="bp1-evidence-1",
+            resolution="kept_original",
+        )
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_raises_when_the_caller_doesnt_own_the_essay(database):
+    essay_id = await _persist_essay(database, teacher_id=TEACHER_ID)
+    await database.persist_dispute_turn(
+        essay_id=essay_id,
+        caller_teacher_id=TEACHER_ID,
+        criterion_id="bp1-evidence-1",
+        teacher_message="I think this deserves a 4.",
+        assistant_message="I'd stand by the original score.",
+        proposal=None,
+        model_version="claude-sonnet-5",
+    )
+
+    with pytest.raises(EssayAccessDeniedError):
+        await database.resolve_dispute(
+            essay_id=essay_id,
+            caller_teacher_id="a-different-teacher",
             criterion_id="bp1-evidence-1",
             resolution="kept_original",
         )
@@ -288,7 +324,10 @@ async def test_resolve_dispute_kept_original_points_at_the_original_grade(databa
     )
 
     accepted_grade_id, resolved_score, resolved_missing = await database.resolve_dispute(
-        essay_id=essay_id, criterion_id="bp1-evidence-1", resolution="kept_original"
+        essay_id=essay_id,
+        caller_teacher_id=TEACHER_ID,
+        criterion_id="bp1-evidence-1",
+        resolution="kept_original",
     )
 
     assert resolved_score == 3  # the original raw_grades row's score, from _all_fourteen_criteria()
@@ -331,6 +370,7 @@ async def test_resolve_dispute_rejects_a_raw_grade_id_from_a_different_essay(dat
     with pytest.raises(RawGradeMismatchError):
         await database.resolve_dispute(
             essay_id=essay_id_1,
+            caller_teacher_id=TEACHER_ID,
             criterion_id="bp1-evidence-1",
             resolution="corrected",
             raw_grade_id=mismatched_id,

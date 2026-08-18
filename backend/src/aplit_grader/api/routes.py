@@ -171,10 +171,21 @@ async def resolve_dispute(
     try:
         accepted_grade_id, score, missing = await database.resolve_dispute(
             essay_id=request.essay_id,
+            caller_teacher_id=teacher.sub,
             criterion_id=request.criterion_id,
             resolution=request.resolution,
             raw_grade_id=request.raw_grade_id,
         )
+    except EssayNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "essay_not_found", "message": str(exc)},
+        ) from exc
+    except EssayAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "essay_access_denied", "message": str(exc)},
+        ) from exc
     except DisputeNotFoundError as exc:
         raise HTTPException(
             status_code=404,
